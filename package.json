@@ -1,0 +1,24 @@
+{
+  "name": "autoglm-ts",
+  "version": "0.1.0",
+  "type": "module",
+  "description": "Phone agent powered by GLM vision-language models",
+  "main": "./src/index.ts",
+  "scripts": {
+    "start": "node --env-file=.env --watch src/index.ts",
+    "dev": "node --env-file=.env --watch src/index.ts"
+  },
+  "author": "",
+  "license": "MIT",
+  "dependencies": {
+    "openai": "^6.10.0",
+    "sharp": "^0.34.5"
+  },
+  "volta": {
+    "node": "24.12.0"
+  },
+  "devDependencies": {
+    "@types/node": "^25.0.1",
+    "typescript": "^5.9.3"
+  }
+}
