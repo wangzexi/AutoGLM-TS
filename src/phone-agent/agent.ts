@@ -131,11 +131,6 @@ export class PhoneAgent {
       this.context.push(
         MessageBuilder.createUserMessage(textContent, screenshot.base64Data)
       );
-
-      const maxMessages = 6;
-      if (this.context.length > maxMessages) {
-        this.context.splice(1, this.context.length - maxMessages);
-      }
     }
 
     let response: ModelResponse;
@@ -193,6 +188,11 @@ export class PhoneAgent {
         message: `Action execution error: ${e instanceof Error ? e.message : String(e)}`,
       };
     }
+
+    // Remove image from context to save space
+    this.context[this.context.length - 1] = MessageBuilder.removeImagesFromMessage(
+      this.context[this.context.length - 1]
+    );
 
     const finished = action["_metadata"] === "finish" || result.shouldFinish;
 
