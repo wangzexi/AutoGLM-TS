@@ -4,6 +4,12 @@ type Message =
 	| { role: "user"; content: string }
 	| { role: "assistant"; thinking: string; action?: Record<string, unknown>; screenshot?: string; finished?: boolean; message?: string };
 
+type Device = {
+	deviceId: string;
+	status: string;
+	model?: string;
+};
+
 const HISTORY_KEY = "autoglm-input-history";
 const MAX_HISTORY = 50;
 
@@ -24,8 +30,28 @@ export default function App() {
 	const [messages, setMessages] = useState<Message[]>([]);
 	const [isRunning, setIsRunning] = useState(false);
 	const [historyIndex, setHistoryIndex] = useState(-1);
+	const [devices, setDevices] = useState<Device[]>([]);
+	const [selectedDevice, setSelectedDevice] = useState<string>("");
 	const tempInputRef = useRef(""); // 不需要状态，用 ref
 	const messagesEndRef = useRef<HTMLDivElement>(null);
+
+	// 获取设备列表
+	useEffect(() => {
+		fetch("/rpc/device/list", {
+			method: "POST",
+			headers: { "Content-Type": "application/json" },
+			body: JSON.stringify({ json: {} }),
+		})
+			.then((res) => res.json())
+			.then((data) => {
+				const list = data.json || [];
+				setDevices(list);
+				if (list.length > 0 && !selectedDevice) {
+					setSelectedDevice(list[0].deviceId);
+				}
+			})
+			.catch(console.error);
+	}, []);
 
 	// 滚动到底部
 	useEffect(() => {
@@ -79,7 +105,7 @@ export default function App() {
 			const res = await fetch("/rpc/task/start", {
 				method: "POST",
 				headers: { "Content-Type": "application/json" },
-				body: JSON.stringify({ json: { task: userMessage } }),
+				body: JSON.stringify({ json: { task: userMessage, deviceId: selectedDevice || undefined } }),
 			});
 
 			if (!res.ok) throw new Error("请求失败");
@@ -140,6 +166,25 @@ export default function App() {
 							<div className="text-6xl mb-4">📱</div>
 							<p className="text-lg">AutoGLM</p>
 							<p className="text-sm mt-2">输入任务开始自动化操作</p>
+
+							{/* 设备选择 */}
+							<div className="mt-6">
+								{devices.length === 0 ? (
+									<p className="text-sm text-zinc-500">未检测到设备</p>
+								) : (
+									<select
+										value={selectedDevice}
+										onChange={(e) => setSelectedDevice(e.target.value)}
+										className="bg-white border border-zinc-300 rounded-lg px-3 py-2 text-zinc-700 focus:outline-none focus:border-zinc-400"
+									>
+										{devices.map((d) => (
+											<option key={d.deviceId} value={d.deviceId}>
+												{d.model || d.deviceId} ({d.status})
+											</option>
+										))}
+									</select>
+								)}
+							</div>
 						</div>
 					</div>
 				)}
