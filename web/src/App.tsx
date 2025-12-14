@@ -37,7 +37,7 @@ export default function App() {
 
 	return (
 		<AppContext.Provider value={contextValue}>
-			<div className="flex">
+			<>
 				<ChatContainer onBack={handleBack} />
 
 				{/* 截图放大弹窗 */}
@@ -60,7 +60,7 @@ export default function App() {
 						</button>
 					</div>
 				)}
-			</div>
+			</>
 		</AppContext.Provider>
 	);
 }
