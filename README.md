@@ -4,7 +4,7 @@
   <video src="demo/demo.mp4" width="320" controls></video>
 </div>
 
-用 TypeScript 实现的 [Open-AutoGLM](https://github.com/openinterpreter/open-autoglm) Android 手机自动化代理。
+用 TypeScript 实现的 [Open-AutoGLM](https://github.com/openinterpreter/open-autoglm) Android Agent。
 
 ```bash
 npm start # Web 模式
