@@ -1,227 +1,104 @@
-# AutoGLM-TS 项目文档
+# AutoGLM-TS 项目指南
 
-## 项目简介
+AI 驱动的 Android 手机自动化代理。通过 GLM 视觉语言模型推理，@yume-chan/adb 控制设备。
 
-AutoGLM-TS 是一个基于 AI 的 Android 手机自动化代理工具，能够通过自然语言指令控制 Android 设备执行各种操作。该项目使用 GLM 视觉语言模型作为核心推理引擎，通过 ADB (Android Debug Bridge) 与 Android 设备进行交互。
+## 快速导航
 
-## 核心特性
+| 入口 | 路径 | 用途 |
+|------|------|------|
+| **主代理** | `src/phone-agent/agent.ts` | 协调模型和设备交互的核心类 |
+| **ADB 驱动** | `src/phone-agent/adb.ts` | 统一的设备控制接口 |
+| **操作执行** | `src/phone-agent/actions.ts` | 解析和执行模型输出的 action |
+| **模型通信** | `src/phone-agent/model.ts` | OpenAI 兼容 API 客户端 |
+| **配置** | `src/phone-agent/config/` | 应用列表、提示词等配置 |
+| **CLI 入口** | `src/main.ts` | Node.js 命令行入口 |
+| **UI 入口** | `src/main.tsx` | Ink React 终端 UI 入口 |
 
-- 🤖 **AI 驱动**: 使用 GLM 视觉语言模型理解屏幕内容并生成操作指令
-- 📱 **手机自动化**: 支持启动应用、点击、滑动、输入等操作
-- 🔍 **视觉理解**: 分析屏幕截图，智能识别 UI 元素
-- 🔧 **可配置**: 支持自定义模型参数、设备 ID、API 端点等
-- 📊 **实时反馈**: 显示详细的操作日志和思考过程
+## 架构设计原则
 
-## 技术架构
+- **单文件模块**：adb.ts、actions.ts、model.ts 各自独立，高内聚低耦合
+- **函数式优先**：大多数 ADB 操作是导出函数，而非类方法
+- **流式优化**：ModelClient 实时处理流式响应，避免等待完整输出
+- **缓存管理**：ADB 客户端和设备实例缓存复用
 
-### 核心组件
+## 关键流程
 
-1. **PhoneAgent** (`src/phone-agent/agent.ts`)
-   - 主代理类，负责协调模型和设备交互
-   - 管理执行上下文和步骤计数
-   - 处理操作结果的反馈循环
+### 任务执行流程（PhoneAgent.run）
 
-2. **ModelClient** (`src/phone-agent/model/client.ts`)
-   - OpenAI 兼容的 API 客户端
-   - 处理流式响应和结果解析
-   - 支持多种响应格式（do()、finish()、XML）
-
-3. **ActionHandler** (`src/phone-agent/actions/handler.ts`)
-   - 解析和执行 AI 模型生成的操作
-   - 支持多种操作类型：点击、滑动、应用启动等
-   - 提供确认和接管机制
-
-4. **ADB 接口** (`src/phone-agent/adb/`)
-   - 设备连接管理
-   - 屏幕截图获取
-   - 输入操作执行
-   - 应用启动和控制
-
-## 支持的操作
-
-### 基础操作
-- **Tap**: 点击指定坐标或元素
-- **Swipe**: 滑动操作（支持方向和距离）
-- **LongPress**: 长按操作
-- **DoubleTap**: 双击操作
-- **TypeText**: 文本输入
-- **ClearText**: 清除文本
-
-### 系统操作
-- **Launch**: 启动指定应用
-- **Back**: 返回上一级
-- **Home**: 返回桌面
-
-### 应用操作
-支持的应用包括但不限于：
-- 外卖类：美团、饿了么
-- 社交类：微信、QQ、钉钉
-- 购物类：淘宝、京东、拼多多
-- 视频类：抖音、快手、Bilibili
-- 出行类：滴滴、高德地图
-- 支付类：支付宝、微信支付
-
-## 使用方法
-
-### 基本启动
-
-```bash
-npm start
+```
+1. 初始化上下文（清空消息、重置步数）
+2. 调用 executeStep(task, isFirstStep=true) - 发送初始任务
+3. 循环 executeStep(undefined, isFirstStep=false)：
+   - 获取屏幕截图
+   - 调用 ModelClient.request() - 流式调用模型
+   - 解析返回的 action（do() 或 finish()）
+   - ActionHandler.execute() - 执行操作
+   - 反馈结果到上下文
+4. 当 action 类型为 "finish" 或达到 maxSteps 退出
 ```
 
-### 命令行参数
+### 模型响应解析（ModelClient.parseResponse）
 
-```bash
-# 列出支持的应用
-npm start -- --list-apps
+优先级从高到低：
+1. `finish(message=...)` - 任务完成
+2. `do(action=...)` - 执行操作
+3. `<answer>...</answer>` - 遗留 XML 格式支持
 
-# 列出连接的设备
-npm start -- --list-devices
+输出均在返回前打印思考过程。
 
-# 指定设备
-npm start -- -d <device-id>
+### 操作执行（ActionHandler.execute）
 
-# 指定模型和 API
-npm start -- --model <model-name> --base-url <api-url>
+1. 检查操作类型（_metadata: "do" 或 "finish"）
+2. 根据 action 字段名查找对应处理方法
+3. 坐标格式：相对 1000x1000，需转换为实际屏幕坐标
+4. 某些操作（Type）涉及 IME 切换：保存原 IME → 切换 ADB 输入法 → 操作 → 恢复
 
-# 执行特定任务
-npm start -- "打开美团搜索瑞幸咖啡"
+## 代码约定
 
-# 启用 TCP/IP 调试
-npm start -- --enable-tcpip 5555
+### 模块导出
 
-# 远程连接设备
-npm start -- --connect 192.168.1.100:5555
-```
-
-### 环境变量配置
-
-创建 `.env` 文件：
-
-```env
-PHONE_AGENT_BASE_URL=https://open.bigmodel.cn/api/paas/v4
-PHONE_AGENT_MODEL=autoglm-phone
-PHONE_AGENT_API_KEY=your-api-key
-PHONE_AGENT_MAX_STEPS=100
-PHONE_AGENT_DEVICE_ID=your-device-id
-```
-
-## 交互模式
-
-启动后进入交互模式：
-
-1. 输入自然语言任务描述
-2. AI 分析屏幕状态
-3. 生成并执行操作序列
-4. 实时反馈执行结果
-5. 输入 `quit` 或 `exit` 退出
-
-## 技术细节
-
-### Token 优化
-
-项目实现了多层 Token 优化机制：
-
-1. **上下文限制**: 保留最近 6 条消息，避免历史累积
-2. **图片压缩**: 自动移除历史消息中的图片数据
-3. **响应流处理**: 流式接收模型响应，实时处理
+- ADB 模块：全部导出函数，无默认导出
+- Actions 模块：导出 ActionHandler 类、parseAction、doAction、finish 函数
+- Model 模块：导出 ModelClient 类和辅助函数
 
 ### 错误处理
 
-- **系统检查**: 启动前验证 ADB、设备连接等
-- **API 错误**: 捕获并报告模型调用错误
-- **操作失败**: 记录操作执行失败信息
-- **敏感操作**: 自动检测并请求用户确认
+- ADB 操作：catch 错误但继续，仅 console.error
+- 模型调用：抛出异常让上层处理
+- 操作执行：返回 ActionResult，success=false 但不抛出
 
-### 安全机制
+### 坐标系统
 
-- **ADB Keyboard**: 确保输入法正确配置
-- **设备验证**: 检查设备状态和连接类型
-- **操作确认**: 敏感操作需要用户确认
-- **手动接管**: 支持人工干预复杂操作
+- 模型输出：[0-1000, 0-1000] 的相对坐标
+- 转换函数：`convertRelativeToAbsolute(element, screenWidth, screenHeight)`
+- 屏幕信息：由 getScreenshot() 返回实际宽高
 
-## 开发指南
-
-### 项目结构
-
-```
-src/
-├── index.ts                    # CLI 入口
-└── phone-agent/
-    ├── agent.ts                # 主代理类
-    ├── index.ts                # 导出文件
-    ├── actions/
-    │   └── handler.ts          # 操作处理器
-    ├── adb/
-    │   ├── connection.ts       # ADB 连接
-    │   ├── device.ts           # 设备操作
-    │   ├── input.ts            # 输入操作
-    │   ├── screenshot.ts       # 截图功能
-    │   └── index.ts            # ADB 导出
-    ├── config/
-    │   ├── apps.ts             # 应用配置
-    │   ├── i18n.ts             # 国际化
-    │   ├── prompts.ts          # 提示词
-    │   └── index.ts            # 配置导出
-    └── model/
-        └── client.ts           # 模型客户端
-```
-
-### 配置文件
-
-- **apps.ts**: 定义支持的应用程序列表
-- **prompts.ts**: 系统提示词和操作模板
-- **i18n.ts**: 国际化文本
+## 常见修改点
 
 ### 添加新操作
 
-1. 在 `ActionHandler` 中实现操作逻辑
-2. 在 `handler.ts` 的 `doAction` 函数中注册
-3. 更新操作解析器支持新格式
-4. 添加相应的 ADB 命令
+1. 在 `ActionHandler.getHandler()` 的 handlers 对象中添加键值对
+2. 实现 `private async handle[ActionName](...): Promise<ActionResult>`
+3. 可能需要在 adb.ts 中添加新的 ADB 命令函数
 
-## 系统要求
+### 修改 ADB 行为
 
-- **Node.js**: >= 24.x (推荐使用 Node 24)
-- **Android 设备**: 支持 ADB 调试
-- **ADB 工具**: Android SDK Platform Tools
-- **ADB Keyboard**: 设备上需安装并启用
-- **权限**: USB 调试权限
+- 所有 ADB 操作在 `src/phone-agent/adb.ts` 中
+- 使用 `getAdbInstance(deviceId)` 获取缓存的 Adb 实例
+- 通过 `adb.createSocket('shell:...')` 执行命令
 
-## 常见问题
+### 更新模型提示词
 
-### Q: 设备未检测到
-**A**: 确保已启用 USB 调试，设备已授权连接
+- 系统提示词：`src/phone-agent/config/prompts.ts` 中的 SYSTEM_PROMPT
+- 应用列表：`src/phone-agent/config/apps.ts` 中的 APP_PACKAGES
 
-### Q: ADB Keyboard 错误
-**A**: 下载并安装 ADBKeyboard.apk，启用该输入法
+### 处理新的响应格式
 
-### Q: 模型 API 连接失败
-**A**: 检查 API 端点、API Key 和网络连接
+修改 `ModelClient.parseResponse()` 中的规则优先级和模式匹配。
 
-### Q: Token 限制错误
-**A**: 项目已内置上下文管理机制，如仍有问题可调整 `maxMessages` 参数
+## 测试和调试
 
-## 版本信息
-
-- **当前版本**: v0.1.0
-- **Node 兼容**: 24.x
-- **TypeScript**: 5.9+
-
-## 许可证
-
-MIT License
-
-## 贡献指南
-
-欢迎提交 Issue 和 Pull Request！
-
-## 更新日志
-
-### v0.1.0
-- 初始版本发布
-- 支持基本手机自动化操作
-- 集成 GLM 视觉语言模型
-- 实现 ADB 设备交互
-- 添加多应用支持
-- 优化 Token 使用和上下文管理
+- **环境变量**：.env 文件配置 API 和设备
+- **开发模式**：`npm run dev` 启用文件监视
+- **命令行调试**：`npm start -- --quiet` 执行任务无日志
+- **系统检查**：src/index.ts 中的 checkSystemRequirements() 诊断环境

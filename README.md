@@ -1,153 +1,157 @@
 # AutoGLM-TS
 
-基于视觉语言模型的Android手机自动化AI代理工具，支持智能操作、任务执行和交互控制。
+AI 驱动的 Android 手机自动化代理。使用 GLM 视觉语言模型推理，通过 ADB 与 Android 设备交互。
 
 ## 特性
 
-- 🎯 **智能理解**: 基于VLM模型的视觉理解能力
-- 📱 **全面控制**: 支持点击、滑动、输入、启动应用等操作
-- 🔌 **多设备支持**: USB、WiFi、远程ADB连接
-- 🌍 **国际化**: 支持中文和英文界面
-- ⚡ **Node24原生**: 基于Node.js 24和TypeScript
+- 🤖 **AI 驱动**: 基于 GLM 视觉语言模型的智能推理
+- 📱 **完整控制**: 点击、滑动、长按、文字输入等丰富操作
+- 🔌 **多设备支持**: USB、TCP/IP 连接，支持多设备管理
+- ⚡ **高效架构**: Node.js 24 原生支持、流式模型响应处理
+- 💬 **交互模式**: 支持 CLI 命令行和现代 Ink React 终端 UI
 
 ## 系统要求
 
-- Node.js >= 24.0.0
-- Android设备（Android 7.0+）
-- ADB工具已安装
-- ADB Keyboard已安装并启用
+- **Node.js**: >= 24.x
+- **Android 设备**: 支持 ADB 调试（Android 5.0+）
+- **ADB 工具**: Android SDK Platform Tools
+- **ADB Keyboard**: 需要在设备上安装并启用
+- **权限**: USB 调试权限
 
 ## 快速开始
 
-### 1. 安装依赖
+### 1. 安装
 
 ```bash
+git clone <repo>
+cd autoglm-ts
 npm install
 ```
 
-### 2. 检查系统要求
+### 2. 配置
 
-```bash
-npm start -- --check
+创建 `.env` 文件配置 API：
+
+```env
+PHONE_AGENT_BASE_URL=https://open.bigmodel.cn/api/paas/v4
+PHONE_AGENT_MODEL=autoglm-phone
+PHONE_AGENT_API_KEY=your-api-key
+PHONE_AGENT_MAX_STEPS=100
 ```
 
-### 3. 运行应用
-
-#### 交互模式（推荐新手）
+### 3. 运行
 
 ```bash
-npm start
+npm start                      # 启动（自动检测 UI/CLI 模式）
 ```
 
-然后输入你的任务描述，例如：
-- "打开微信，给张三发消息：你好"
-- "打开淘宝，搜索iPhone 15"
-- "打开美团，点一份外卖"
+然后输入任务，例如：
+- `打开微信`
+- `打开淘宝搜索iPhone`
+- `打开美团点外卖`
 
-#### 单次任务模式
+## 命令行使用
+
+### 基本命令
 
 ```bash
-npm start -- "打开微信，给张三发消息：你好"
+npm start                                  # 交互模式
+npm start -- "打开微信"                   # 单次任务
+npm run dev                               # 开发模式（文件监视）
+```
+
+### 设备管理
+
+```bash
+npm start -- --list-devices               # 列出所有设备
+npm start -- --connect 192.168.1.100:5555  # TCP/IP 连接
+npm start -- --disconnect [address]       # 断开连接
+npm start -- --enable-tcpip 5555          # 启用 TCP/IP
+```
+
+### 模型配置
+
+```bash
+npm start -- --model autoglm-phone --base-url http://localhost:8000/v1 --apikey sk-xxx
+npm start -- --max-steps 50               # 设置最大步数
+npm start -- --device-id device-serial    # 指定设备
+```
+
+### 其他选项
+
+```bash
+npm start -- --list-apps                  # 列出支持的应用
+npm start -- --quiet "任务"               # 静默模式（无日志）
+```
+
+### 完整示例
+
+```bash
+# 在指定设备上执行任务
+npm start -- -d emulator-5554 "打开支付宝扫一扫"
+
+# 使用自定义 API
+npm start -- --model custom-model --base-url http://localhost:8000/v1 "打开微信"
+
+# 远程设备：先启用 TCP/IP
+npm start -- -d emulator-5554 --enable-tcpip 5555
+adb connect 192.168.1.100:5555
+npm start -- --connect 192.168.1.100:5555 "打开微信"
 ```
 
 ## 支持的应用
 
-自动支持50+常用Android应用，包括：
+支持 50+ 常用应用，包括：
 
-- **社交**: 微信、QQ、微博、小红书
-- **电商**: 淘宝、京东、拼多多、天猫
-- **视频**: 抖音、快手、B站、腾讯视频
-- **外卖**: 美团、饿了么、大众点评
-- **出行**: 滴滴出行、高德地图
-- **支付**: 支付宝、微信支付
-- **学习**: 钉钉、飞书、腾讯文档
+| 类型 | 应用 |
+|------|------|
+| 社交 | 微信、QQ、钉钉、飞书 |
+| 电商 | 淘宝、京东、拼多多、天猫 |
+| 视频 | 抖音、快手、B站、腾讯视频 |
+| 外卖 | 美团、饿了么、大众点评 |
+| 出行 | 滴滴、高德地图、美团地图 |
+| 支付 | 支付宝、微信支付 |
+| 其他 | 微博、小红书、网易云音乐 |
 
-完整列表请运行：
+完整列表：
 ```bash
 npm start -- --list-apps
 ```
 
-## 配置选项
+## 环境变量
 
-### 环境变量
-
-| 变量名 | 说明 | 默认值 |
-|--------|------|--------|
-| `PHONE_AGENT_BASE_URL` | 模型API地址 | `http://localhost:8000/v1` |
+| 变量 | 说明 | 默认值 |
+|------|------|--------|
+| `PHONE_AGENT_BASE_URL` | API 地址 | `http://localhost:8000/v1` |
 | `PHONE_AGENT_MODEL` | 模型名称 | `autoglm-phone-9b` |
-| `PHONE_AGENT_API_KEY` | API密钥 | `EMPTY` |
-| `PHONE_AGENT_MAX_STEPS` | 最大执行步骤 | `100` |
-| `PHONE_AGENT_DEVICE_ID` | ADB设备ID | - |
-| `PHONE_AGENT_LANG` | 界面语言 | `cn` |
+| `PHONE_AGENT_API_KEY` | API 密钥 | `EMPTY` |
+| `PHONE_AGENT_MAX_STEPS` | 最大步数 | `100` |
+| `PHONE_AGENT_DEVICE_ID` | 设备 ID | - |
 
-### 命令行参数
-
-```bash
-# 指定模型和API
-npm start -- --base-url http://localhost:8000/v1 --model autoglm-phone-9b --apikey sk-xxx
-
-# 指定设备
-npm start -- --device-id emulator-5554
-
-# 连接远程设备
-npm start -- --connect 192.168.1.100:5555
-
-# 启用TCP/IP调试
-npm start -- --enable-tcpip 5555
-
-# 静默模式
-npm start -- --quiet "打开微信"
-
-# 设置语言
-npm start -- --lang en "Open WeChat"
-```
-
-## ADB设备管理
-
-### 连接设备
-
-```bash
-# 连接USB设备
-npm start -- --enable-tcpip 5555
-npm start -- --connect 192.168.1.100:5555
-
-# 列出所有设备
-npm start -- --list-devices
-
-# 断开连接
-npm start -- --disconnect 192.168.1.100:5555
-npm start -- --disconnect all
-```
-
-## API使用
+## 编程 API
 
 ```typescript
-import { PhoneAgent, ModelConfig, AgentConfig } from "./phone-agent/index.js";
+import { PhoneAgent } from "./phone-agent/agent.ts";
 
-const modelConfig: ModelConfig = {
-  baseUrl: "http://localhost:8000/v1",
-  modelName: "autoglm-phone-9b",
-  apiKey: "your-api-key",
-};
+const agent = new PhoneAgent(
+  {
+    baseUrl: "http://localhost:8000/v1",
+    modelName: "autoglm-phone",
+    apiKey: "your-api-key",
+  },
+  {
+    maxSteps: 100,
+    deviceId: "emulator-5554",
+    verbose: true,
+  }
+);
 
-const agentConfig: AgentConfig = {
-  maxSteps: 100,
-  deviceId: "emulator-5554",
-  lang: "cn",
-  verbose: true,
-};
-
-const agent = new PhoneAgent(modelConfig, agentConfig);
-
-// 执行任务
-const result = await agent.run("打开微信，给张三发消息：你好");
+// 运行任务
+const result = await agent.run("打开微信");
 console.log(result);
 
-// 单步执行
-await agent.step("打开微信");
-await agent.step();
-console.log(agent.getContext());
-console.log(agent.getStepCount());
+// 重置状态
+agent.reset();
 ```
 
 ## 开发
@@ -155,66 +159,62 @@ console.log(agent.getStepCount());
 ### 项目结构
 
 ```
-autoglm-ts/
-├── src/
-│   ├── index.ts              # CLI入口
-│   └── phone-agent/
-│       ├── agent.ts          # 主Agent类
-│       ├── actions/          # 动作处理
-│       ├── adb/              # ADB工具
-│       └── config/           # 配置和国际化
-├── package.json
-├── tsconfig.json
-└── README.md
+src/
+├── main.ts                 # Node.js CLI 入口
+├── main.tsx                # Ink React UI 入口
+├── utils/args.ts           # 参数解析
+├── ui/                     # Ink 组件
+│   ├── App.tsx
+│   ├── DeviceList.tsx
+│   └── Interactive.tsx
+└── phone-agent/
+    ├── agent.ts            # 主代理类
+    ├── adb.ts              # ADB 统一接口
+    ├── actions.ts          # 操作处理
+    ├── model.ts            # 模型通信
+    ├── index.ts
+    └── config/
+        ├── apps.ts
+        ├── prompts.ts
+        └── index.ts
 ```
-
-### 构建
-
-```bash
-npm run build
-```
-
-构建后的文件在 `dist/` 目录中。
 
 ### 开发模式
 
 ```bash
-npm run dev
+npm run dev                  # 启用文件监视
 ```
-
-使用Node.js的 `--watch` 模式，自动重启。
 
 ## 常见问题
 
-### Q: ADB设备检测失败？
-A:
-1. 确保设备已开启USB调试
-2. 检查数据线连接
-3. 重新插拔数据线
-4. 运行 `adb devices` 检查
+### Q: 设备未检测到？
 
-### Q: ADB Keyboard未安装？
-A:
-1. 下载ADB Keyboard APK: [https://github.com/senzhk/ADBKeyBoard](https://github.com/senzhk/ADBKeyBoard/blob/master/ADBKeyboard.apk)
+1. 启用 USB 调试：设置 → 开发者选项 → USB 调试
+2. 授权设备连接
+3. 验证 ADB：`adb devices`
+
+### Q: ADB Keyboard 错误？
+
+1. 下载：https://github.com/senzhk/ADBKeyBoard/blob/master/ADBKeyboard.apk
 2. 安装：`adb install ADBKeyboard.apk`
-3. 在设备设置中启用
+3. 启用：设置 → 语言与输入法 → 虚拟键盘
 
-### Q: 模型API连接失败？
-A:
-1. 检查API地址是否正确
-2. 确保API服务正在运行
-3. 检查网络连接
-4. 验证API密钥是否有效
+### Q: API 连接失败？
+
+1. 检查 API 地址和密钥
+2. 验证网络连接
+3. 确保 API 服务正在运行
+
+### Q: 模型输出不执行？
+
+1. 检查设备屏幕状态
+2. 增加 `--max-steps` 限制
+3. 尝试重新启动 ADB
 
 ## 许可证
 
-MIT
+MIT License
 
 ## 贡献
 
-欢迎提交Issue和Pull Request！
-
-## 致谢
-
-- 原始项目: [AutoGLM](https://github.com/THUDM/AutoGLM)
-- 基于视觉语言模型的Android自动化框架
+欢迎提交 Issue 和 Pull Request！
