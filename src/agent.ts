@@ -3,7 +3,7 @@
  */
 
 import { buildSystemPrompt } from "./config.ts";
-import { executeAction, ActionContext } from "./actions/index.ts";
+import { executeAction, parseAction, ActionContext, Action } from "./actions/index.ts";
 import * as adb from "./actions/adb.ts";
 
 // 类型
@@ -82,56 +82,37 @@ const createClient = (baseUrl: string, apiKey: string) => {
 	return { chat };
 };
 
-// 解析动作字符串
-const parseAction = (str: string): Record<string, unknown> => {
-	if (str.startsWith("finish(")) {
-		const match = str.match(/message=["']?([^"')]+)/);
-		return { _type: "finish", message: match?.[1] || "完成" };
-	}
-
-	if (!str.startsWith("do(")) return { _type: "finish", message: str };
-
-	const action: Record<string, unknown> = { _type: "do" };
-	const kvPattern = /(\w+)=(\[[^\]]+\]|"[^"]*"|'[^']*'|[\w.-]+)/g;
-	let m;
-
-	while ((m = kvPattern.exec(str))) {
-		let val: unknown = m[2];
-		if (val === "True") val = true;
-		else if (val === "False") val = false;
-		else if (val === "None") val = null;
-		else if (typeof val === "string" && val.startsWith("[")) val = JSON.parse(val);
-		else if (typeof val === "string" && (val.startsWith('"') || val.startsWith("'"))) val = val.slice(1, -1);
-		else if (typeof val === "string" && !isNaN(Number(val))) val = Number(val);
-		action[m[1]] = val;
-	}
-
-	return action;
-};
-
-// 解析模型响应
-const parseResponse = (content: string) => {
-	const markers = ["finish(message=", "do(action="];
+// 解析模型响应：提取 thinking 和 do()/finish() action
+const parseResponse = (content: string): { thinking: string; actionStr?: string } => {
+	const markers = ["finish(", "do("];
 
 	for (const marker of markers) {
-		if (!content.includes(marker)) continue;
-		const [thinking, rest] = content.split(marker, 2);
-		return {
-			thinking: thinking.replace(/<\/?think>/g, "").trim(),
-			action: parseAction(marker + rest),
-		};
+		const idx = content.indexOf(marker);
+		if (idx === -1) continue;
+
+		// 找到闭合的 )
+		let depth = 0;
+		let end = -1;
+		for (let i = idx; i < content.length; i++) {
+			if (content[i] === "(") depth++;
+			else if (content[i] === ")") {
+				depth--;
+				if (depth === 0) {
+					end = i + 1;
+					break;
+				}
+			}
+		}
+
+		if (end === -1) continue;
+
+		const thinking = content.slice(0, idx).replace(/<\/?think>/g, "").trim();
+		const actionStr = content.slice(idx, end);
+
+		return { thinking, actionStr };
 	}
 
-	// XML 格式兼容
-	if (content.includes("<answer>")) {
-		const [thinking, rest] = content.split("<answer>", 2);
-		return {
-			thinking: thinking.replace(/<\/?think>/g, "").trim(),
-			action: parseAction(rest.replace(/<\/answer>.*/, "")),
-		};
-	}
-
-	return { thinking: content, action: { _type: "finish", message: content } };
+	return { thinking: content.replace(/<\/?think>/g, "").trim() };
 };
 
 // 创建 Agent（闭包工厂）
@@ -201,18 +182,21 @@ export const createAgent = (config: AgentConfig = {}) => {
 
 				buffer += chunk;
 
-				// 检测 action 开始
-				const markers = ["finish(message=", "do(action="];
+				// 检测 do() 或 finish() action 开始
+				const markers = ["do(", "finish("];
 				for (const marker of markers) {
-					if (!buffer.includes(marker)) continue;
-					process.stdout.write(buffer.split(marker)[0] + "\n");
-					inAction = true;
-					break;
+					const idx = buffer.indexOf(marker);
+					if (idx !== -1) {
+						// 输出 thinking 部分
+						process.stdout.write(buffer.slice(0, idx) + "\n");
+						inAction = true;
+						break;
+					}
 				}
 
 				if (inAction) continue;
 
-				// 检测潜在 marker
+				// 检测潜在 marker（避免截断）
 				let isPotential = false;
 				for (const marker of markers) {
 					for (let i = 1; i < marker.length; i++) {
@@ -233,13 +217,35 @@ export const createAgent = (config: AgentConfig = {}) => {
 			return { success: false, finished: true, thinking: "", message: `模型错误: ${e}` };
 		}
 
-		// 解析
-		const { thinking, action } = parseResponse(rawContent);
+		// 解析响应
+		const { thinking, actionStr } = parseResponse(rawContent);
 
-		// 移除历史图片
-		const lastMsg = context.at(-1);
-		if (lastMsg && Array.isArray(lastMsg.content)) {
-			lastMsg.content = lastMsg.content.filter((c) => c.type === "text");
+		// zod 验证
+		if (!actionStr) {
+			// 没有找到 action，当作 finish 处理
+			context.push({ role: "assistant", content: rawContent });
+			return { success: true, finished: true, thinking, message: thinking };
+		}
+
+		const parseResult = parseAction(actionStr);
+
+		if (!parseResult.success) {
+			// 验证失败，反馈给模型
+			console.error(`\n❌ Action 解析失败: ${parseResult.error}`);
+			context.push({ role: "assistant", content: rawContent });
+			context.push({ role: "user", content: `Action 格式错误: ${parseResult.error}\n请修正后重新输出。` });
+			// 递归重试（不增加 stepCount）
+			stepCount--;
+			return step();
+		}
+
+		const action = parseResult.data as Action;
+
+		// 记录 assistant 响应（移除历史图片）
+		context.push({ role: "assistant", content: rawContent });
+		const prevUserMsg = context.at(-2);
+		if (prevUserMsg && Array.isArray(prevUserMsg.content)) {
+			prevUserMsg.content = prevUserMsg.content.filter((c) => c.type === "text");
 		}
 
 		// 执行动作
@@ -251,14 +257,17 @@ export const createAgent = (config: AgentConfig = {}) => {
 			onTakeover,
 		};
 
-		const result = await executeAction(action, ctx);
+		// 转换为 executeAction 需要的格式
+		const actionForExec = action as Record<string, unknown>;
+		const result = await executeAction(actionForExec, ctx);
 
+		const isFinish = actionForExec.action === "finish";
 		return {
 			success: result.success,
-			finished: action._type === "finish" || result.finished || false,
+			finished: isFinish || result.finished || false,
 			thinking,
-			action,
-			message: result.message || (action.message as string),
+			action: actionForExec,
+			message: result.message || (isFinish ? (actionForExec.message as string) : undefined),
 		};
 	};
 

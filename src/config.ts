@@ -90,7 +90,12 @@ ${generateRulesPrompt()}
 </rules>
 
 <output_format>
-<think>{你选择这个动作的简短推理}</think>
-<action>{你要执行的具体动作，须严格遵循 <actions> 定义的格式}</action>
+你必须严格按照以下格式输出：
+<think>{think}</think>
+<answer>{action}</answer>
+
+其中：
+- {think} 是对你为什么选择这个操作的简短推理说明。
+- {action} 是本次执行的具体操作指令，必须严格遵循上方定义的指令格式。
 </output_format>
 `.trim();

@@ -1,5 +1,6 @@
 import { useState, useRef, useEffect } from "react";
-import { useQuery } from "@tanstack/react-query";
+import { useQuery, useMutation } from "@tanstack/react-query";
+import { X, Home, ImageDown, LayoutGrid } from "lucide-react";
 
 type Message =
 	| { role: "user"; content: string }
@@ -11,6 +12,7 @@ type Device = {
 	model?: string;
 	brand?: string;
 	marketName?: string;
+	androidVersion?: string;
 	screenshot?: string;
 };
 
@@ -45,8 +47,11 @@ export default function App() {
 	const [messages, setMessages] = useState<Message[]>([]);
 	const [isRunning, setIsRunning] = useState(false);
 	const [historyIndex, setHistoryIndex] = useState(-1);
+	const [screenSize, setScreenSize] = useState<{ width: number; height: number } | null>(null);
 	const tempInputRef = useRef("");
 	const messagesEndRef = useRef<HTMLDivElement>(null);
+	const imgRef = useRef<HTMLImageElement>(null);
+	const dragStartRef = useRef<{ x: number; y: number } | null>(null);
 
 	// 轮询设备列表（仅在未选择设备时）
 	const { data: devices = [] } = useQuery({
@@ -59,6 +64,46 @@ export default function App() {
 	useEffect(() => {
 		messagesEndRef.current?.scrollIntoView({ behavior: "smooth" });
 	}, [messages]);
+
+	// 轮询刷新截图
+	const { data: liveScreenshotData } = useQuery({
+		queryKey: ["screenshot", selectedDevice?.deviceId],
+		queryFn: async () => {
+			const res = await fetch("/rpc/device/screenshot", {
+				method: "POST",
+				headers: { "Content-Type": "application/json" },
+				body: JSON.stringify({ json: { deviceId: selectedDevice!.deviceId } }),
+			});
+			const data = await res.json();
+			return data.json?.screenshot as string | undefined;
+		},
+		enabled: Boolean(selectedDevice),
+		refetchInterval: 500,
+	});
+
+	// 设备操作 mutations（必须在条件返回之前）
+	const rpc = (path: string, json: Record<string, unknown>) =>
+		fetch(`/rpc/${path}`, {
+			method: "POST",
+			headers: { "Content-Type": "application/json" },
+			body: JSON.stringify({ json }),
+		});
+
+	const homeMutation = useMutation({
+		mutationFn: () => rpc("device/home", { deviceId: selectedDevice?.deviceId }),
+	});
+
+	const recentMutation = useMutation({
+		mutationFn: () => rpc("device/recent", { deviceId: selectedDevice?.deviceId }),
+	});
+
+	const tapMutation = useMutation({
+		mutationFn: (p: { x: number; y: number }) => rpc("device/tap", { deviceId: selectedDevice?.deviceId, ...p }),
+	});
+
+	const swipeMutation = useMutation({
+		mutationFn: (p: { x1: number; y1: number; x2: number; y2: number }) => rpc("device/swipe", { deviceId: selectedDevice?.deviceId, ...p }),
+	});
 
 	const handleKeyDown = (e: React.KeyboardEvent<HTMLTextAreaElement>) => {
 		if (e.key === "Enter" && !e.shiftKey) {
@@ -174,7 +219,7 @@ export default function App() {
 	if (!selectedDevice) {
 		return (
 			<div className="min-h-screen bg-white text-zinc-900 p-8">
-				<div className="max-w-4xl mx-auto">
+				<div className="max-w-4xl mx-auto text-center">
 					<h1 className="text-2xl font-medium mb-2">AutoGLM</h1>
 					<p className="text-zinc-500 mb-8">选择要操作的设备</p>
 
@@ -185,7 +230,7 @@ export default function App() {
 							<p className="text-sm mt-2">请连接 Android 设备并开启 USB 调试</p>
 						</div>
 					) : (
-						<div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-4">
+						<div className="flex flex-wrap justify-center gap-4">
 							{devices.map((device) => (
 								<button
 									key={device.deviceId}
@@ -193,7 +238,7 @@ export default function App() {
 									className="bg-zinc-100 rounded-2xl p-3 hover:bg-zinc-200 transition text-left"
 								>
 									{device.screenshot ? (
-										<div className="h-80 flex items-center justify-center">
+										<div className="h-[60vh] flex items-center justify-center">
 											<img
 												src={`data:image/png;base64,${device.screenshot}`}
 												alt={device.model || device.deviceId}
@@ -201,15 +246,17 @@ export default function App() {
 											/>
 										</div>
 									) : (
-										<div className="h-80 bg-zinc-300 rounded-xl flex items-center justify-center text-zinc-500">
+										<div className="h-[60vh] bg-zinc-300 rounded-xl flex items-center justify-center text-zinc-500">
 											无法获取截图
 										</div>
 									)}
-									<div className="mt-2 px-1">
+									<div className="mt-2 px-1 text-center">
 										<div className="font-medium truncate">
 											{device.marketName || device.model || device.deviceId}
 										</div>
-										<div className="text-xs text-zinc-500">{device.brand}</div>
+										<div className="text-xs text-zinc-500">
+											{device.androidVersion ? `Android ${device.androidVersion}` : device.brand}
+										</div>
 									</div>
 								</button>
 							))}
@@ -220,104 +267,187 @@ export default function App() {
 		);
 	}
 
-	// 对话页面
+	// 获取最新截图（最后一条有截图的消息，或设备初始截图）
+	const latestScreenshot = [...messages].reverse().find((m): m is Extract<Message, { role: "assistant" }> => m.role === "assistant" && Boolean(m.screenshot))?.screenshot || selectedDevice.screenshot;
+
+	// 实际显示的截图（优先用轮询的实时截图）
+	const displayScreenshot = liveScreenshotData || latestScreenshot;
+
+	const handleDownloadScreenshot = () => {
+		if (!displayScreenshot) return;
+		const link = document.createElement("a");
+		link.href = `data:image/png;base64,${displayScreenshot}`;
+		link.download = `screenshot-${Date.now()}.png`;
+		link.click();
+	};
+
+	// 计算点击坐标（相对于手机屏幕实际分辨率）
+	const getPhoneCoords = (e: React.MouseEvent<HTMLImageElement> | MouseEvent) => {
+		if (!imgRef.current || !screenSize) return null;
+		const rect = imgRef.current.getBoundingClientRect();
+		const x = Math.round(((e.clientX - rect.left) / rect.width) * screenSize.width);
+		const y = Math.round(((e.clientY - rect.top) / rect.height) * screenSize.height);
+		return { x, y };
+	};
+
+	const handleMouseDown = (e: React.MouseEvent<HTMLImageElement>) => {
+		const coords = getPhoneCoords(e);
+		if (!coords) return;
+		dragStartRef.current = coords;
+	};
+
+	const handleMouseUp = (e: React.MouseEvent<HTMLImageElement>) => {
+		const endCoords = getPhoneCoords(e);
+		const startCoords = dragStartRef.current;
+		dragStartRef.current = null;
+
+		if (!startCoords || !endCoords) return;
+
+		const dx = Math.abs(endCoords.x - startCoords.x);
+		const dy = Math.abs(endCoords.y - startCoords.y);
+
+		if (dx < 10 && dy < 10) {
+			tapMutation.mutate(startCoords);
+		} else {
+			swipeMutation.mutate({ x1: startCoords.x, y1: startCoords.y, x2: endCoords.x, y2: endCoords.y });
+		}
+	};
+
+	const handleImgLoad = (e: React.SyntheticEvent<HTMLImageElement>) => {
+		const img = e.currentTarget;
+		setScreenSize({ width: img.naturalWidth, height: img.naturalHeight });
+	};
+
+	// 对话页面：左侧聊天，右侧手机预览
 	return (
-		<div className="min-h-screen bg-white text-zinc-900">
-			{/* 顶部栏 */}
-			<div className="sticky top-0 bg-white/80 backdrop-blur border-b border-zinc-100 px-4 py-3">
-				<div className="max-w-3xl mx-auto flex items-center gap-3">
-					<button
-						onClick={handleBack}
-						className="text-zinc-500 hover:text-zinc-900 transition"
-					>
-						← 返回
-					</button>
-					<span className="text-zinc-900 font-medium">
-						{selectedDevice.marketName || selectedDevice.model || selectedDevice.deviceId}
-					</span>
+		<div className="min-h-screen bg-white text-zinc-900 flex">
+			{/* 左侧聊天区域 */}
+			<div className="flex-1 flex flex-col min-w-0">
+				{/* 消息区域 */}
+				<div className="flex-1 overflow-y-auto px-4 pt-4 pb-32 space-y-6">
+					{messages.length === 0 && (
+						<div className="h-[60vh] flex items-center justify-center text-zinc-400">
+							<div className="text-center">
+								<div className="text-5xl mb-4">💬</div>
+								<p>输入任务开始自动化操作</p>
+							</div>
+						</div>
+					)}
+
+					{messages.map((msg, i) =>
+						msg.role === "user" ? (
+							<div key={i} className="flex justify-end">
+								<div className="bg-blue-500 text-white rounded-2xl rounded-br-sm px-4 py-2 max-w-[80%] whitespace-pre-wrap">
+									{msg.content}
+								</div>
+							</div>
+						) : (
+							<div key={i} className="space-y-3">
+								<p className="text-zinc-700 whitespace-pre-wrap">{msg.thinking}</p>
+								{msg.action && (
+									<div className="text-sm text-blue-600">
+										{msg.action._type === "finish" ? (
+											<span>✅ {String(msg.action.message)}</span>
+										) : (
+											<span>
+												🎯 {String(msg.action.action)}
+												{msg.action.element ? ` → ${JSON.stringify(msg.action.element)}` : ""}
+											</span>
+										)}
+									</div>
+								)}
+							</div>
+						)
+					)}
+
+					<div ref={messagesEndRef} />
+				</div>
+
+				{/* 输入区域 */}
+				<div className="sticky bottom-0 pb-4 pt-2 px-4 bg-gradient-to-t from-white from-50% to-transparent">
+					<form onSubmit={handleSubmit}>
+						<div className="bg-zinc-100 rounded-3xl px-4 pt-3 pb-2">
+							<textarea
+								value={input}
+								onChange={(e) => setInput(e.target.value)}
+								onKeyDown={handleKeyDown}
+								placeholder="输入任务..."
+								rows={1}
+								className="w-full bg-transparent focus:outline-none resize-none text-zinc-900 placeholder-zinc-400 disabled:cursor-not-allowed"
+								disabled={isRunning}
+								style={{ minHeight: "24px", maxHeight: "150px" }}
+								onInput={(e) => {
+									const target = e.target as HTMLTextAreaElement;
+									target.style.height = "auto";
+									target.style.height = Math.min(target.scrollHeight, 150) + "px";
+								}}
+							/>
+							<div className="flex items-center justify-between mt-2">
+								<div className="text-zinc-400 text-xs">
+									{getHistory().length > 0 ? "↑ 查看历史  /  Shift+Enter 换行" : "Shift+Enter 换行"}
+								</div>
+								<button
+									type="submit"
+									disabled={isRunning || !input.trim()}
+									className="bg-zinc-900 hover:bg-zinc-700 disabled:bg-zinc-300 text-white w-8 h-8 rounded-full flex items-center justify-center transition"
+								>
+									{isRunning ? "·" : "↑"}
+								</button>
+							</div>
+						</div>
+					</form>
 				</div>
 			</div>
 
-			{/* 消息区域 */}
-			<div className="max-w-3xl mx-auto px-4 pt-4 pb-32 space-y-6">
-				{messages.length === 0 && (
-					<div className="h-[60vh] flex items-center justify-center text-zinc-400">
-						<div className="text-center">
-							<div className="text-5xl mb-4">💬</div>
-							<p>输入任务开始自动化操作</p>
-						</div>
+			{/* 右侧手机预览 */}
+			<div className="w-80 flex-shrink-0 border-l border-zinc-100 bg-zinc-50 p-4 flex items-center justify-center relative group">
+				<div className="absolute top-3 right-3 flex gap-2 opacity-0 group-hover:opacity-100 transition-opacity">
+					<button
+						onClick={() => recentMutation.mutate()}
+						className="w-8 h-8 bg-black/60 hover:bg-black/80 text-white rounded-full flex items-center justify-center"
+						title="多任务"
+					>
+						<LayoutGrid size={16} />
+					</button>
+					<button
+						onClick={() => homeMutation.mutate()}
+						className="w-8 h-8 bg-black/60 hover:bg-black/80 text-white rounded-full flex items-center justify-center"
+						title="返回主屏幕"
+					>
+						<Home size={16} />
+					</button>
+					<button
+						onClick={handleDownloadScreenshot}
+						className="w-8 h-8 bg-black/60 hover:bg-black/80 text-white rounded-full flex items-center justify-center"
+						title="保存截图"
+					>
+						<ImageDown size={16} />
+					</button>
+					<button
+						onClick={handleBack}
+						className="w-8 h-8 bg-black/60 hover:bg-black/80 text-white rounded-full flex items-center justify-center"
+						title="关闭"
+					>
+						<X size={18} />
+					</button>
+				</div>
+				{displayScreenshot ? (
+					<img
+						ref={imgRef}
+						src={`data:image/png;base64,${displayScreenshot}`}
+						alt="Phone Screen"
+						className="max-h-[calc(100vh-2rem)] max-w-full object-contain rounded-xl shadow-lg select-none"
+						draggable={false}
+						onLoad={handleImgLoad}
+						onMouseDown={handleMouseDown}
+						onMouseUp={handleMouseUp}
+					/>
+				) : (
+					<div className="text-zinc-400 text-center">
+						<div className="text-4xl mb-2">📱</div>
+						<p className="text-sm">等待截图...</p>
 					</div>
 				)}
-
-				{messages.map((msg, i) =>
-					msg.role === "user" ? (
-						<div key={i} className="flex justify-end">
-							<div className="bg-blue-500 text-white rounded-2xl rounded-br-sm px-4 py-2 max-w-[80%] whitespace-pre-wrap">
-								{msg.content}
-							</div>
-						</div>
-					) : (
-						<div key={i} className="space-y-3">
-							<p className="text-zinc-700 whitespace-pre-wrap">{msg.thinking}</p>
-							{msg.action && (
-								<div className="text-sm text-blue-600">
-									{msg.action._type === "finish" ? (
-										<span>✅ {String(msg.action.message)}</span>
-									) : (
-										<span>
-											🎯 {String(msg.action.action)}
-											{msg.action.element ? ` → ${JSON.stringify(msg.action.element)}` : ""}
-										</span>
-									)}
-								</div>
-							)}
-							{msg.screenshot && (
-								<img
-									src={`data:image/png;base64,${msg.screenshot}`}
-									alt="Screenshot"
-									className="rounded-lg cursor-pointer hover:opacity-90 transition border border-zinc-200"
-									style={{ maxHeight: "500px" }}
-									onClick={() => window.open(`data:image/png;base64,${msg.screenshot}`, "_blank")}
-								/>
-							)}
-						</div>
-					)
-				)}
-
-				<div ref={messagesEndRef} />
-			</div>
-
-			{/* 输入区域 */}
-			<div className="fixed bottom-0 left-0 right-0 pb-4 pt-2 bg-gradient-to-t from-white from-50% to-transparent pointer-events-none">
-				<form onSubmit={handleSubmit} className="max-w-3xl mx-auto px-4 pointer-events-auto">
-					<div className="bg-zinc-100 rounded-3xl px-4 pt-3 pb-2">
-						<textarea
-							value={input}
-							onChange={(e) => setInput(e.target.value)}
-							onKeyDown={handleKeyDown}
-							placeholder="输入任务..."
-							rows={1}
-							className="w-full bg-transparent focus:outline-none resize-none text-zinc-900 placeholder-zinc-400 disabled:cursor-not-allowed"
-							disabled={isRunning}
-							style={{ minHeight: "24px", maxHeight: "150px" }}
-							onInput={(e) => {
-								const target = e.target as HTMLTextAreaElement;
-								target.style.height = "auto";
-								target.style.height = Math.min(target.scrollHeight, 150) + "px";
-							}}
-						/>
-						<div className="flex items-center justify-between mt-2">
-							<div className="text-zinc-400 text-xs">Shift+Enter 换行</div>
-							<button
-								type="submit"
-								disabled={isRunning || !input.trim()}
-								className="bg-zinc-900 hover:bg-zinc-700 disabled:bg-zinc-300 text-white w-8 h-8 rounded-full flex items-center justify-center transition"
-							>
-								{isRunning ? "·" : "↑"}
-							</button>
-						</div>
-					</div>
-				</form>
 			</div>
 		</div>
 	);

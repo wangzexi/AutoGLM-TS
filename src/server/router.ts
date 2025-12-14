@@ -52,6 +52,52 @@ export const listDevices = os.handler(async () => {
 	return devicesWithScreenshot;
 });
 
+export const deviceHome = os
+	.input(z.object({ deviceId: z.string().optional() }))
+	.handler(async ({ input }) => {
+		await adb.home(input.deviceId);
+		return { success: true };
+	});
+
+export const deviceRecent = os
+	.input(z.object({ deviceId: z.string().optional() }))
+	.handler(async ({ input }) => {
+		await adb.recent(input.deviceId);
+		return { success: true };
+	});
+
+export const deviceScreenshot = os
+	.input(z.object({ deviceId: z.string().optional() }))
+	.handler(async ({ input }) => {
+		const screenshot = await adb.getScreenshot(input.deviceId);
+		return { screenshot: screenshot.base64 };
+	});
+
+export const deviceTap = os
+	.input(z.object({
+		deviceId: z.string().optional(),
+		x: z.number(),
+		y: z.number(),
+	}))
+	.handler(async ({ input }) => {
+		await adb.tap(input.x, input.y, input.deviceId);
+		return { success: true };
+	});
+
+export const deviceSwipe = os
+	.input(z.object({
+		deviceId: z.string().optional(),
+		x1: z.number(),
+		y1: z.number(),
+		x2: z.number(),
+		y2: z.number(),
+		duration: z.number().optional(),
+	}))
+	.handler(async ({ input }) => {
+		await adb.swipe(input.x1, input.y1, input.x2, input.y2, input.duration ?? 300, input.deviceId);
+		return { success: true };
+	});
+
 // 任务相关
 export const startTask = os
 	.input(z.object({
@@ -162,6 +208,11 @@ export const listTasks = os.handler(async () => {
 export const router = {
 	device: {
 		list: listDevices,
+		home: deviceHome,
+		recent: deviceRecent,
+		screenshot: deviceScreenshot,
+		tap: deviceTap,
+		swipe: deviceSwipe,
 	},
 	task: {
 		start: startTask,

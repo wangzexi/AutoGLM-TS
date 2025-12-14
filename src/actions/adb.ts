@@ -50,12 +50,15 @@ export async function listDevices() {
 	const devices = await getClient().getDevices();
 	return await Promise.all(
 		devices.map(async (d) => {
-			// 获取品牌和型号名
+			// 获取品牌、型号名和系统版本
 			let brand = "";
 			let marketName = "";
+			let androidVersion = "";
 			try {
 				const adb = await getClient().createAdb({ serial: d.serial });
-				const socket = await adb.createSocket("shell:getprop ro.product.brand && getprop ro.product.marketname");
+				const socket = await adb.createSocket(
+					"shell:getprop ro.product.brand && getprop ro.product.marketname && getprop ro.build.version.release"
+				);
 				const chunks: Uint8Array[] = [];
 				for await (const chunk of socket.readable) chunks.push(chunk);
 				socket.close();
@@ -63,6 +66,7 @@ export async function listDevices() {
 				const lines = output.split("\n");
 				brand = lines[0]?.trim() || "";
 				marketName = lines[1]?.trim() || "";
+				androidVersion = lines[2]?.trim() || "";
 			} catch {}
 			return {
 				deviceId: d.serial,
@@ -70,6 +74,7 @@ export async function listDevices() {
 				model: d.model,
 				brand,
 				marketName,
+				androidVersion,
 			};
 		})
 	);
@@ -111,6 +116,10 @@ export async function back(deviceId?: string) {
 
 export async function home(deviceId?: string) {
 	await shell("input keyevent 3", deviceId);
+}
+
+export async function recent(deviceId?: string) {
+	await shell("input keyevent 187", deviceId);
 }
 
 export async function typeText(text: string, deviceId?: string) {

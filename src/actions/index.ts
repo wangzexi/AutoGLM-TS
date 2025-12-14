@@ -2,7 +2,8 @@
  * 动作注册表 - 自动生成提示词
  */
 
-import { Action, ActionContext, ActionResult } from "./types.ts";
+import { z } from "zod";
+import { ActionContext, ActionDef, ActionResult, schemaToUsage } from "./types.ts";
 import { launch } from "./launch.ts";
 import { tap, tapSensitive } from "./tap.ts";
 import { type, typeName } from "./type.ts";
@@ -11,8 +12,9 @@ import { doubleTap, longPress } from "./press.ts";
 import { back, home, wait } from "./navigate.ts";
 import { takeOver, note, callApi, interact } from "./special.ts";
 
-// 所有动作（用于生成提示词）
-const allActions: Action[] = [
+// 所有动作
+// eslint-disable-next-line @typescript-eslint/no-explicit-any
+const allActions: ActionDef<any>[] = [
 	launch,
 	tap,
 	tapSensitive,
@@ -30,60 +32,101 @@ const allActions: Action[] = [
 	callApi,
 ];
 
-// 动作处理器映射（name -> handler）
-const handlers = new Map<string, Action["handler"]>();
+// 动作处理器映射（action name -> handler）
+// eslint-disable-next-line @typescript-eslint/no-explicit-any
+const handlers = new Map<string, (params: any, ctx: ActionContext) => Promise<ActionResult>>();
 for (const action of allActions) {
-	handlers.set(action.name, action.handler);
+	// 从 schema 中提取 action literal 值 (zod v4)
+	// eslint-disable-next-line @typescript-eslint/no-explicit-any
+	const actionLiteral = action.schema.shape.action as any;
+	const actionName = actionLiteral.value ?? actionLiteral._zod?.def?.values?.[0];
+	if (actionName) {
+		handlers.set(actionName, action.handler);
+	}
 }
-// 别名
-handlers.set("Type_Name", type.handler);
+// 兼容旧格式
+handlers.set("Double Tap", doubleTap.handler);
+handlers.set("Long Press", longPress.handler);
 
 /**
- * 生成动作提示词
- *
- * @example 输出样例:
- * ```
- * - do(action="Launch", app="xxx")
- *   Launch是启动目标app的操作，这比通过主屏幕导航更快。
- * - do(action="Tap", element=[x,y])
- *   Tap是点击操作，点击屏幕上的特定点。坐标系统从左上角 (0,0) 开始到右下角（999,999)结束。
- * - do(action="Tap", element=[x,y], message="重要操作")
- *   基本功能同Tap，点击涉及财产、支付、隐私等敏感按钮时触发。
- * - do(action="Type", text="xxx")
- *   Type是输入操作，在当前聚焦的输入框中输入文本。输入框中现有的任何文本都会被自动清除。
- * ...
- * - finish(message="xxx")
- *   finish是结束任务的操作，表示准确完整完成任务。
- * ```
+ * 生成动作提示词（do() 格式）
  */
 export const generateActionsPrompt = (): string => {
 	const seen = new Set<string>();
 	const lines: string[] = [];
 
 	for (const action of allActions) {
-		// 避免重复（如 tapSensitive 和 tap 共用 handler）
-		const key = action.usage;
-		if (seen.has(key)) continue;
-		seen.add(key);
+		const usage = schemaToUsage(action.schema);
+		if (seen.has(usage)) continue;
+		seen.add(usage);
 
-		lines.push(`- ${action.usage}`);
+		lines.push(`- ${usage}`);
 		lines.push(`    ${action.description}`);
 	}
 
-	// finish 是特殊的，单独添加（与原版一致）
-	lines.push(`- finish(message="xxx")`);
+	// finish 是特殊的
+	lines.push('- finish(message="xxx")');
 	lines.push(`    finish是结束任务的操作，表示准确完整完成任务，message是终止信息。`);
 
 	return lines.join("\n");
 };
 
+// 合并所有 action schemas 生成联合类型
+const FinishSchema = z.object({ action: z.literal("finish"), message: z.string() });
+const allSchemas = [...allActions.map((a) => a.schema), FinishSchema];
+
+export const ActionSchema = z.union(allSchemas as unknown as [z.ZodTypeAny, z.ZodTypeAny, ...z.ZodTypeAny[]]);
+export type Action = z.infer<typeof ActionSchema>;
+
+// 解析 do() 格式字符串为对象
+const parseDoString = (str: string): Record<string, unknown> | undefined => {
+	// finish(message="xxx")
+	if (str.startsWith("finish(")) {
+		const match = str.match(/message=["']([^"']+)["']/);
+		return { action: "finish", message: match?.[1] || "完成" };
+	}
+
+	// do(action="Tap", element=[x,y], ...)
+	if (!str.startsWith("do(")) return undefined;
+
+	const result: Record<string, unknown> = {};
+	const kvPattern = /(\w+)=(\[[^\]]+\]|"[^"]*"|'[^']*'|[\w.-]+)/g;
+	let m;
+
+	while ((m = kvPattern.exec(str))) {
+		let val: unknown = m[2];
+		if (val === "True") val = true;
+		else if (val === "False") val = false;
+		else if (val === "None") val = null;
+		else if (typeof val === "string" && val.startsWith("[")) val = JSON.parse(val);
+		else if (typeof val === "string" && (val.startsWith('"') || val.startsWith("'"))) val = val.slice(1, -1);
+		else if (typeof val === "string" && !isNaN(Number(val))) val = Number(val);
+		result[m[1]] = val;
+	}
+
+	return result;
+};
+
+// 解析并验证 action（do() 格式 -> zod 验证）
+export const parseAction = (str: string): { success: true; data: Action } | { success: false; error: string } => {
+	const parsed = parseDoString(str);
+	if (!parsed) {
+		return { success: false, error: `无法解析: ${str}` };
+	}
+
+	const result = ActionSchema.safeParse(parsed);
+	if (result.success) {
+		return { success: true, data: result.data };
+	}
+
+	const errors = result.error.issues.map((i) => `${i.path.join(".")}: ${i.message}`).join("; ");
+	return { success: false, error: errors };
+};
+
 // 执行动作
-export const executeAction = async (
-	action: Record<string, unknown>,
-	ctx: ActionContext
-): Promise<ActionResult> => {
+export const executeAction = async (action: Record<string, unknown>, ctx: ActionContext): Promise<ActionResult> => {
 	// finish 特殊处理
-	if (action._type === "finish") {
+	if (action.action === "finish") {
 		return { success: true, finished: true, message: action.message as string };
 	}
 
@@ -102,4 +145,4 @@ export const executeAction = async (
 };
 
 // 导出类型
-export type { Action, ActionContext, ActionResult };
+export type { ActionContext, ActionResult };
