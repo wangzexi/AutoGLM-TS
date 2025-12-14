@@ -50,8 +50,8 @@ node --version
 
 克隆仓库：
 ```bash
-git clone <repo>
-cd autoglm-ts
+git clone https://github.com/wangzexi/AutoGLM-TS.git
+cd AutoGLM-TS
 npm install
 ```
 
