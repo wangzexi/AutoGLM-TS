@@ -1,64 +1,39 @@
 # AutoGLM-TS 开发指南
 
-AI 驱动的 Android 手机自动化代理。使用 @yume-chan/adb 库与设备交互，oRPC 通信框架。
+AI 驱动的 Android 手机自动化代理。使用 @yume-chan/adb 库与设备交互。
 
-## 快速导航
+## 文件导航
 
-- **src/main.ts** - CLI 入口，参数解析、Web/CLI 模式路由
-- **src/agent.ts** - 核心代理，任务执行循环、流式 API 调用
-- **src/session.ts** - 会话管理，全局单例、消息历史、中止控制
-- **src/actions/** - 所有设备操作（tap/swipe/type/launch 等）
-  - actions/index.ts - 操作注册、提示词生成
-  - actions/adb.ts - ADB 底层命令
-  - actions/*.ts - 各个操作实现
-- **src/config.ts** - 应用列表、系统提示词、规则
-- **src/server/** - HTTP 服务、oRPC 路由
-- **web/src/** - React 前端（App.tsx、组件化）
+**核心执行链路**
+- src/main.ts - 入口，CLI 参数解析和模式选择
+- src/agent.ts - 任务执行循环，调用 LLM、解析结果、执行操作
+- src/session.ts - 全局会话管理，保存消息历史
+- src/actions/index.ts - 操作分发和执行
+- src/actions/adb.ts - ADB 底层命令
+- src/config.ts - 系统提示词、应用列表
 
-## 架构流程
+**操作定义**
+- src/actions/ - 各个操作实现（tap.ts、swipe.ts、type.ts、launch.ts 等）
 
-任务执行的整体流程：
+**Web 相关**
+- src/server/index.ts - HTTP 服务启动
+- src/server/router.ts - oRPC 路由（session、device、task）
+- web/src/App.tsx - React 主组件，状态管理
+- web/src/components/ - UI 组件（DeviceSelector、ChatContainer、MessageList 等）
 
-1. **初始化**: Web UI 选择设备 → 调用 /rpc/session/create → 后端创建 Session 单例
-2. **循环执行**:
-   - 获取设备截图
-   - 调用 LLM（流式）拉取推理结果
-   - 解析模型输出（thinking + action）
-   - 执行 action（坐标转换、ADB 命令调用）
-   - 保存结果到 Session 消息历史
-3. **终止**: 模型返回 finish() 或超过 maxSteps
+## 核心概念
 
-关键概念：
-- **坐标系**: 模型输出 [0-1000, 0-1000] 相对坐标，自动转换为实际分辨率
-- **会话**: 全局单例，保存消息历史用于多轮对话上下文
-- **流式事件**: agent.executeStep() 产生 thinking → action → done 事件
-- **操作定义**: Zod Schema → 自动生成模型提示词样本
+**执行流**：选择设备 → 创建 Session → 获取截图 → 调用 LLM（流式）→ 解析 thinking + action → 执行 ADB 命令 → 保存反馈 → 重复直到 finish()
 
-## 设计原则
+**坐标**：模型输出 [0-1000, 0-1000]，自动转换为实际分辨率
 
-- 单一职责：每个模块一个功能（tap 只点击，swipe 只滑动）
-- 函数式：优先函数导出，避免类
-- 流式处理：实时处理响应，不等待完整输出
-- 全局单例：session 管理全局状态
+**操作定义**：Zod schema + handler 函数，自动生成模型提示词
 
-## 常见修改
+**会话**：全局单例，保存消息用于多轮对话上下文
 
-**添加新操作**: src/actions/{action}.ts
-```typescript
-export const myAction = {
-  name: "myAction",
-  description: "操作描述",
-  schema: z.object({ /* ... */ }),
-  handler: async (params, ctx) => {
-    // 实现逻辑
-    return { success: true, message: "..." }
-  }
-}
-```
-然后在 src/actions/index.ts 的 allActions 数组中添加。
+## 修改要点
 
-**修改系统提示词**: 编辑 src/config.ts 中的 buildSystemPrompt()
-
-**支持新应用**: 在 src/config.ts 的 APP_PACKAGES 中添加
-
-**操作流程详情**: 参考 src/agent.ts 的 executeStep() 和 src/actions/index.ts 的 executeAction()
+- 新操作：添加到 src/actions/，在 src/actions/index.ts 注册
+- 系统提示词：src/config.ts 的 buildSystemPrompt()
+- 应用列表：src/config.ts 的 APP_PACKAGES
+- Web 路由：src/server/router.ts
