@@ -384,7 +384,6 @@ export default function App() {
 								) : (
 									<div className="text-zinc-500">
 										<span className="inline-block animate-pulse">思考中</span>
-										<span className="inline-block w-0.5 h-4 bg-zinc-500 ml-1 animate-blink align-middle" />
 									</div>
 								)}
 								{msg.action && (
