@@ -1,8 +1,6 @@
 # AutoGLM-TS
 
-<div align="center">
-  <video src="demo/demo.mp4" width="320" controls></video>
-</div>
+![Demo](demo/demo.webp)
 
 用 TypeScript 实现的 [Open-AutoGLM](https://github.com/openinterpreter/open-autoglm) Android Agent。
 
