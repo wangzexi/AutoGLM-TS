@@ -5,29 +5,25 @@
   "description": "Phone agent powered by GLM vision-language models",
   "main": "./src/index.ts",
   "scripts": {
-    "start": "tsx --env-file=.env --watch src/main.ts",
-    "dev": "tsx --env-file=.env --watch src/main.ts"
+    "start": "tsx --env-file=.env src/main.ts",
+    "dev": "tsx --env-file=.env --watch src/main.ts",
+    "build:web": "cd web && npm run build"
   },
   "author": "",
   "license": "MIT",
   "dependencies": {
+    "@orpc/server": "^1.12.3",
     "@yume-chan/adb": "^2.3.1",
     "@yume-chan/adb-server-node-tcp": "^2.1.0",
     "@yume-chan/stream-extra": "^2.1.0",
-    "ink": "^6.5.1",
-    "ink-table": "^3.1.0",
-    "ink-text-input": "^6.0.0",
-    "openai": "^6.10.0",
-    "react": "^19.2.3",
-    "react-dom": "^19.2.3",
-    "sharp": "^0.34.5"
+    "sharp": "^0.34.5",
+    "zod": "^4.1.13"
   },
   "volta": {
     "node": "24.12.0"
   },
   "devDependencies": {
     "@types/node": "^25.0.1",
-    "@types/react": "^19.2.7",
     "tsx": "^4.21.0",
     "typescript": "^5.9.3"
   }
