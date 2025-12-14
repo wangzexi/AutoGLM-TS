@@ -6,9 +6,8 @@
   "main": "./src/index.ts",
   "scripts": {
     "start": "tsx --env-file=.env src/main.ts",
-    "dev": "tsx --env-file=.env --watch src/main.ts",
-    "dev:web": "cd web && npm run dev",
-    "build:web": "cd web && npm run build"
+    "dev": "concurrently -n server,web -c blue,green \"tsx --env-file=.env --watch src/main.ts\" \"cd web && npm run dev\"",
+    "build": "cd web && npm run build"
   },
   "author": "",
   "license": "MIT",
@@ -25,6 +24,7 @@
   },
   "devDependencies": {
     "@types/node": "^25.0.1",
+    "concurrently": "^9.2.1",
     "tsx": "^4.21.0",
     "typescript": "^5.9.3"
   }

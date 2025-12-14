@@ -8,38 +8,29 @@ import { createAgent, StepResult } from "../agent.ts";
 import * as adb from "../actions/adb.ts";
 
 // Schema 定义
-const DeviceSchema = z.object({
-	deviceId: z.string(),
-	status: z.string(),
-});
-
 const StepSchema = z.object({
 	index: z.number(),
 	thinking: z.string(),
-	action: z.record(z.unknown()).optional(),
+	action: z.record(z.string(), z.unknown()).optional(),
 	screenshot: z.string(), // base64
 	success: z.boolean(),
 	finished: z.boolean(),
 	message: z.string().optional(),
 });
 
-const TaskStatusSchema = z.object({
-	id: z.string(),
-	task: z.string(),
-	status: z.enum(["running", "completed", "failed", "cancelled"]),
-	steps: z.array(StepSchema),
-	result: z.string().optional(),
-});
+type TaskStatus = "running" | "completed" | "failed" | "cancelled";
 
-// 任务存储（内存）
-const tasks = new Map<string, {
+type TaskData = {
 	task: string;
-	status: "running" | "completed" | "failed" | "cancelled";
+	status: TaskStatus;
 	steps: z.infer<typeof StepSchema>[];
 	result?: string;
 	agent?: ReturnType<typeof createAgent>;
 	abortController?: AbortController;
-}>();
+};
+
+// 任务存储（内存）
+const tasks = new Map<string, TaskData>();
 
 // 生成任务 ID
 const genId = () => Math.random().toString(36).slice(2, 10);
@@ -61,10 +52,10 @@ export const startTask = os
 		const agent = createAgent({ deviceId: input.deviceId });
 		const abortController = new AbortController();
 
-		const taskData = {
+		const taskData: TaskData = {
 			task: input.task,
-			status: "running" as const,
-			steps: [] as z.infer<typeof StepSchema>[],
+			status: "running",
+			steps: [],
 			agent,
 			abortController,
 		};
@@ -124,7 +115,7 @@ export const getTask = os
 	.handler(async ({ input }) => {
 		const task = tasks.get(input.id);
 		if (!task) {
-			throw new ORPCError("NOT_FOUND", "任务不存在");
+			throw new ORPCError("NOT_FOUND", { message: "任务不存在" });
 		}
 		return {
 			id: input.id,
@@ -140,7 +131,7 @@ export const cancelTask = os
 	.handler(async ({ input }) => {
 		const task = tasks.get(input.id);
 		if (!task) {
-			throw new ORPCError("NOT_FOUND", "任务不存在");
+			throw new ORPCError("NOT_FOUND", { message: "任务不存在" });
 		}
 		task.abortController?.abort();
 		task.status = "cancelled";
