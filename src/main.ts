@@ -5,7 +5,6 @@
 import { createAgent } from "./agent.ts";
 import { listDevices } from "./actions/adb.ts";
 import { createWebServer } from "./server/index.ts";
-import { exec } from "node:child_process";
 
 // CLI 参数解析
 const parseArgs = () => {
@@ -36,13 +35,6 @@ const parseArgs = () => {
 		listDevices: args.listDevices as boolean | undefined,
 		port: (args.port as number) || 3000,
 	};
-};
-
-// 打开浏览器
-const openBrowser = (url: string) => {
-	const cmd = process.platform === "darwin" ? "open" :
-		process.platform === "win32" ? "start" : "xdg-open";
-	exec(`${cmd} ${url}`);
 };
 
 // 主入口
@@ -78,9 +70,6 @@ const main = async () => {
 
 	const server = createWebServer(args.port);
 	await server.start();
-
-	// 自动打开浏览器
-	openBrowser(`http://localhost:${args.port}`);
 
 	console.log("按 Ctrl+C 退出\n");
 
