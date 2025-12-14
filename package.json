@@ -7,7 +7,8 @@
   "scripts": {
     "start": "tsx --env-file=.env src/main.ts",
     "dev": "concurrently -n server,web -c blue,green \"tsx --env-file=.env --watch src/main.ts\" \"cd web && npm run dev\"",
-    "build": "cd web && npm run build"
+    "build": "cd web && npm run build",
+    "check": "biome check . --fix --unsafe"
   },
   "author": "",
   "license": "MIT",
@@ -27,6 +28,7 @@
     "node": "24.12.0"
   },
   "devDependencies": {
+    "@biomejs/biome": "^1.9.3",
     "@types/node": "^25.0.1",
     "concurrently": "^9.2.1",
     "tsx": "^4.21.0",
