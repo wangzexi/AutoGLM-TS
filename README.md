@@ -1,15 +1,15 @@
 # AutoGLM-TS
 
+<div align="center">
+  <video src="demo/demo.mp4" width="320" controls></video>
+</div>
+
 用 TypeScript 实现的 [Open-AutoGLM](https://github.com/openinterpreter/open-autoglm) Android 手机自动化代理。
 
 ```bash
 npm start # Web 模式
 npm start -- "打开美团帮我点一杯瑞幸咖啡" # CLI 模式
 ```
-
-## Demo
-
-<video src="demo/demo.mp4" width="320" controls></video>
 
 ## 快速开始
 
