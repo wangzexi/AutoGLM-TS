@@ -1,6 +1,7 @@
-import { X } from "lucide-react";
 import { useQuery } from "@tanstack/react-query";
+import { X } from "lucide-react";
 import { useEffect, useState } from "react";
+import { client } from "../client";
 import type {
   AppContextType,
   Device,
@@ -10,7 +11,6 @@ import type {
 import { AppContext } from "./AppContext";
 import { ChatContainer } from "./ChatContainer";
 import { DeviceSelector } from "./DeviceSelector";
-import { client } from "../client";
 
 export default function App() {
   const [selectedDevice, setSelectedDevice] = useState<Device | null>(null);
@@ -45,7 +45,7 @@ export default function App() {
         setMessages(restored);
         // 恢复设备（从设备列表获取完整信息）
         const devices = await client.device.list();
-        const device = devices.find((d) => d.deviceId === data.deviceId);
+        const device = devices.find((d: any) => d.deviceId === data.deviceId);
         setSelectedDevice(device || { deviceId: data.deviceId });
       }
     });

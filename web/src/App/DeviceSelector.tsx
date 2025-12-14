@@ -1,7 +1,7 @@
 import { useQuery } from "@tanstack/react-query";
+import { client } from "../client";
 import type { Device } from "./AppContext";
 import { useAppContext } from "./AppContext";
-import { client } from "../client";
 
 async function fetchDevices(): Promise<Device[]> {
   return client.device.list();

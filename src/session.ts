@@ -71,7 +71,10 @@ export const appendUserMessage = (content: string): void => {
 /**
  * 追加助手消息
  */
-export const appendAssistantMessage = (content: string, screenshot?: string): void => {
+export const appendAssistantMessage = (
+  content: string,
+  screenshot?: string,
+): void => {
   if (!currentSession) return;
   currentSession.messages.push({ role: "assistant", content, screenshot });
 };

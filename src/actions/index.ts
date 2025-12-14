@@ -18,7 +18,7 @@ import {
 } from "./types.ts";
 
 // 所有动作
-const allActions: ActionDef<unknown>[] = [
+const allActions = [
   launch,
   tap,
   tapSensitive,
@@ -34,19 +34,15 @@ const allActions: ActionDef<unknown>[] = [
   takeOver,
   note,
   callApi,
-];
+] as const satisfies ActionDef<z.ZodObject<z.ZodRawShape>>[];
 
 // 动作处理器映射（action name -> handler）
-const handlers = new Map<
-  string,
-  (params: unknown, ctx: ActionContext) => Promise<ActionResult>
->();
+const handlers = new Map<string, (params: any, ctx: ActionContext) => Promise<ActionResult>>();
 for (const action of allActions) {
   // 从 schema 中提取 action literal 值 (zod v4)
-  const actionLiteral = action.schema.shape.action as unknown;
+  const actionLiteral = action.schema.shape.action as any;
   const actionName =
-    (actionLiteral as Record<string, unknown>).value ??
-    (actionLiteral as Record<string, unknown>)._zod?.def?.values?.[0];
+    actionLiteral.value ?? actionLiteral._zod?.def?.values?.[0];
   if (actionName) {
     handlers.set(actionName as string, action.handler);
   }
@@ -60,7 +56,7 @@ export const generateActionsPrompt = (): string => {
   const lines: string[] = [];
 
   for (const action of allActions) {
-    const usage = schemaToUsage(action.schema);
+    const usage = schemaToUsage(action.schema as z.ZodObject<z.ZodRawShape>);
     if (seen.has(usage)) continue;
     seen.add(usage);
 
@@ -82,11 +78,9 @@ const FinishSchema = z.object({
   action: z.literal("finish"),
   message: z.string(),
 });
-const allSchemas = [...allActions.map((a) => a.schema), FinishSchema];
+const allSchemas = [...allActions.map((a) => a.schema as z.ZodTypeAny), FinishSchema];
 
-export const ActionSchema = z.union(
-  allSchemas as unknown as [z.ZodTypeAny, z.ZodTypeAny, ...z.ZodTypeAny[]],
-);
+export const ActionSchema = z.union(allSchemas);
 export type Action = z.infer<typeof ActionSchema>;
 
 // 解析 do() 格式字符串为对象

@@ -2,8 +2,8 @@
  * PhoneAgent - 手机自动化代理
  */
 
-import * as adb from "./adb.ts";
 import { type ActionContext, executeAction } from "./actions/index.ts";
+import * as adb from "./adb.ts";
 import { buildSystemPrompt } from "./config.ts";
 import { type Message, chat, parseResponse, streamParse } from "./llm.ts";
 
@@ -27,8 +27,18 @@ export type StepEvent =
 export type TaskEvent =
   | { type: "started" }
   | { type: "screenshot"; stepIndex: number; screenshot: string }
-  | { type: "thinking"; stepIndex: number; thinking: string; screenshot: string }
-  | { type: "action"; stepIndex: number; action: Record<string, unknown>; screenshot: string }
+  | {
+      type: "thinking";
+      stepIndex: number;
+      thinking: string;
+      screenshot: string;
+    }
+  | {
+      type: "action";
+      stepIndex: number;
+      action: Record<string, unknown>;
+      screenshot: string;
+    }
   | { type: "step"; step: StepData }
   | { type: "completed"; result: string }
   | { type: "cancelled" }
@@ -175,7 +185,9 @@ export const createAgent = (config: AgentConfig = {}) => {
     // 移除历史图片（节省 token）
     const prevUserMsg = messages.at(-2);
     if (prevUserMsg && Array.isArray(prevUserMsg.content)) {
-      prevUserMsg.content = prevUserMsg.content.filter((c) => c.type === "text");
+      prevUserMsg.content = prevUserMsg.content.filter(
+        (c) => c.type === "text",
+      );
     }
 
     // 执行动作
@@ -226,7 +238,11 @@ export const createAgent = (config: AgentConfig = {}) => {
         for await (const event of step(stepIndex === 0 ? task : undefined)) {
           if (event.type === "screenshot") {
             currentScreenshot = event.screenshot;
-            yield { type: "screenshot", stepIndex, screenshot: event.screenshot };
+            yield {
+              type: "screenshot",
+              stepIndex,
+              screenshot: event.screenshot,
+            };
           } else if (event.type === "thinking") {
             currentThinking = event.thinking;
             yield {
@@ -267,7 +283,10 @@ export const createAgent = (config: AgentConfig = {}) => {
         };
       } while (!result?.finished && stepIndex < maxSteps);
 
-      yield { type: "completed", result: result?.message || lastThinking || "完成" };
+      yield {
+        type: "completed",
+        result: result?.message || lastThinking || "完成",
+      };
     } catch (e) {
       yield { type: "failed", error: String(e) };
     }

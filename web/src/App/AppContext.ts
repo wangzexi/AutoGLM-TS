@@ -53,8 +53,5 @@ export function useAppContext() {
 export function useIsRunning(): boolean {
   const { messages } = useAppContext();
   const lastMessage = messages[messages.length - 1];
-  return (
-    lastMessage?.role === "assistant" &&
-    !lastMessage.finished
-  );
+  return lastMessage?.role === "assistant" && !lastMessage.finished;
 }

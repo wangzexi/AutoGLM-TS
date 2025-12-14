@@ -69,8 +69,8 @@ export const schemaToUsage = (schema: z.ZodObject<z.ZodRawShape>): string => {
 // zod 类型转示例值（zod v4 版本）
 const zodToExample = (schema: z.ZodTypeAny): unknown => {
   // zod v4 使用 _zod.def.type 而不是 typeName
-  const s = schema as Record<string, unknown>;
-  const type = (s._zod as Record<string, unknown>)?.def?.type || s.type;
+  const s = schema as any;
+  const type = s._zod?.def?.type || s.type;
 
   switch (type) {
     case "optional":

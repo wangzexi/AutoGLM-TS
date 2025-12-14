@@ -1,8 +1,8 @@
 import { useMutation, useQuery } from "@tanstack/react-query";
 import { Home, ImageDown, LayoutGrid, X } from "lucide-react";
 import { useEffect, useRef, useState } from "react";
-import { useAppContext } from "../AppContext";
 import { client } from "../../client";
+import { useAppContext } from "../AppContext";
 
 type PhonePreviewProps = {
   onBack: () => void;

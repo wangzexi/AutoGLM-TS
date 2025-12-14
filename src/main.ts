@@ -43,9 +43,7 @@ const main = async () => {
   // 检查必要的环境变量
   const apiKey = process.env.AUTOGLM_API_KEY;
   if (!apiKey) {
-    throw new Error(
-      "❌ 缺少 API_KEY 配置\n请设置环境变量 AUTOGLM_API_KEY",
-    );
+    throw new Error("❌ 缺少 API_KEY 配置\n请设置环境变量 AUTOGLM_API_KEY");
   }
 
   // 直接执行任务（无 UI）
