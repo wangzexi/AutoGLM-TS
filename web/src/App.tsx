@@ -4,10 +4,27 @@ type Message =
 	| { role: "user"; content: string }
 	| { role: "assistant"; thinking: string; action?: Record<string, unknown>; screenshot?: string; finished?: boolean; message?: string };
 
+const HISTORY_KEY = "autoglm-input-history";
+const MAX_HISTORY = 50;
+
+function getHistory(): string[] {
+	try {
+		return JSON.parse(localStorage.getItem(HISTORY_KEY) || "[]");
+	} catch {
+		return [];
+	}
+}
+
+function saveHistory(history: string[]) {
+	localStorage.setItem(HISTORY_KEY, JSON.stringify(history.slice(-MAX_HISTORY)));
+}
+
 export default function App() {
 	const [input, setInput] = useState("");
 	const [messages, setMessages] = useState<Message[]>([]);
 	const [isRunning, setIsRunning] = useState(false);
+	const [historyIndex, setHistoryIndex] = useState(-1);
+	const tempInputRef = useRef(""); // 不需要状态，用 ref
 	const messagesEndRef = useRef<HTMLDivElement>(null);
 
 	// 滚动到底部
@@ -15,17 +32,51 @@ export default function App() {
 		messagesEndRef.current?.scrollIntoView({ behavior: "smooth" });
 	}, [messages]);
 
+	const handleKeyDown = (e: React.KeyboardEvent<HTMLInputElement>) => {
+		const history = getHistory();
+		if (history.length === 0) return;
+
+		if (e.key === "ArrowUp") {
+			e.preventDefault();
+			if (historyIndex === -1) {
+				tempInputRef.current = input;
+			}
+			const newIndex = Math.min(historyIndex + 1, history.length - 1);
+			setHistoryIndex(newIndex);
+			setInput(history[history.length - 1 - newIndex]);
+		} else if (e.key === "ArrowDown") {
+			e.preventDefault();
+			if (historyIndex <= 0) {
+				setHistoryIndex(-1);
+				setInput(tempInputRef.current);
+			} else {
+				const newIndex = historyIndex - 1;
+				setHistoryIndex(newIndex);
+				setInput(history[history.length - 1 - newIndex]);
+			}
+		}
+	};
+
 	const handleSubmit = async (e: React.FormEvent) => {
 		e.preventDefault();
 		if (!input.trim() || isRunning) return;
 
 		const userMessage = input.trim();
+
+		// 保存到历史
+		const history = getHistory();
+		if (history[history.length - 1] !== userMessage) {
+			saveHistory([...history, userMessage]);
+		}
+
 		setInput("");
+		setHistoryIndex(-1);
+		tempInputRef.current = "";
 		setMessages((prev) => [...prev, { role: "user", content: userMessage }]);
 		setIsRunning(true);
 
 		try {
-			const res = await fetch("http://localhost:3000/rpc/task/start", {
+			const res = await fetch("/rpc/task/start", {
 				method: "POST",
 				headers: { "Content-Type": "application/json" },
 				body: JSON.stringify({ json: { task: userMessage } }),
@@ -80,11 +131,11 @@ export default function App() {
 	};
 
 	return (
-		<div className="h-screen bg-zinc-950 text-zinc-100 flex flex-col">
+		<div className="min-h-screen bg-white text-zinc-900">
 			{/* 消息区域 */}
-			<div className="flex-1 overflow-y-auto p-4 space-y-4">
+			<div className="max-w-3xl mx-auto px-4 pt-4 pb-24 space-y-6">
 				{messages.length === 0 && (
-					<div className="h-full flex items-center justify-center text-zinc-600">
+					<div className="h-[80vh] flex items-center justify-center text-zinc-400">
 						<div className="text-center">
 							<div className="text-6xl mb-4">📱</div>
 							<p className="text-lg">AutoGLM</p>
@@ -96,41 +147,39 @@ export default function App() {
 				{messages.map((msg, i) =>
 					msg.role === "user" ? (
 						<div key={i} className="flex justify-end">
-							<div className="bg-blue-600 rounded-2xl rounded-br-sm px-4 py-2 max-w-[80%]">
+							<div className="bg-blue-500 text-white rounded-2xl rounded-br-sm px-4 py-2 max-w-[80%]">
 								{msg.content}
 							</div>
 						</div>
 					) : (
-						<div key={i} className="flex justify-start">
-							<div className="bg-zinc-800 rounded-2xl rounded-bl-sm px-4 py-3 max-w-[80%] space-y-3">
-								{/* 思考过程 */}
-								<p className="text-zinc-300 whitespace-pre-wrap">{msg.thinking}</p>
+						<div key={i} className="space-y-3">
+							{/* 思考过程 */}
+							<p className="text-zinc-700 whitespace-pre-wrap">{msg.thinking}</p>
 
-								{/* 操作 */}
-								{msg.action && (
-									<div className="text-sm text-blue-400 bg-zinc-900 rounded px-2 py-1">
-										{msg.action._type === "finish" ? (
-											<span>✅ {String(msg.action.message)}</span>
-										) : (
-											<span>
-												🎯 {String(msg.action.action)}
-												{msg.action.element ? ` → ${JSON.stringify(msg.action.element)}` : ""}
-											</span>
-										)}
-									</div>
-								)}
+							{/* 操作 */}
+							{msg.action && (
+								<div className="text-sm text-blue-600">
+									{msg.action._type === "finish" ? (
+										<span>✅ {String(msg.action.message)}</span>
+									) : (
+										<span>
+											🎯 {String(msg.action.action)}
+											{msg.action.element ? ` → ${JSON.stringify(msg.action.element)}` : ""}
+										</span>
+									)}
+								</div>
+							)}
 
-								{/* 截图 */}
-								{msg.screenshot && (
-									<img
-										src={`data:image/png;base64,${msg.screenshot}`}
-										alt="Screenshot"
-										className="rounded-lg max-w-full cursor-pointer hover:opacity-90 transition"
-										style={{ maxHeight: "400px" }}
-										onClick={() => window.open(`data:image/png;base64,${msg.screenshot}`, "_blank")}
-									/>
-								)}
-							</div>
+							{/* 截图 */}
+							{msg.screenshot && (
+								<img
+									src={`data:image/png;base64,${msg.screenshot}`}
+									alt="Screenshot"
+									className="rounded-lg cursor-pointer hover:opacity-90 transition border border-zinc-200"
+									style={{ maxHeight: "500px" }}
+									onClick={() => window.open(`data:image/png;base64,${msg.screenshot}`, "_blank")}
+								/>
+							)}
 						</div>
 					)
 				)}
@@ -138,26 +187,29 @@ export default function App() {
 				<div ref={messagesEndRef} />
 			</div>
 
-			{/* 输入区域 */}
-			<form onSubmit={handleSubmit} className="p-4 border-t border-zinc-800">
-				<div className="flex gap-2">
-					<input
-						type="text"
-						value={input}
-						onChange={(e) => setInput(e.target.value)}
-						placeholder="输入任务，如：打开美团搜索瑞幸咖啡"
-						className="flex-1 bg-zinc-900 border border-zinc-700 rounded-full px-4 py-3 focus:outline-none focus:border-blue-500"
-						disabled={isRunning}
-					/>
-					<button
-						type="submit"
-						disabled={isRunning || !input.trim()}
-						className="bg-blue-600 hover:bg-blue-700 disabled:bg-zinc-700 disabled:text-zinc-500 px-6 py-3 rounded-full font-medium transition"
-					>
-						{isRunning ? "..." : "发送"}
-					</button>
-				</div>
-			</form>
+			{/* 输入区域 - ChatGPT 风格 */}
+			<div className="fixed bottom-0 left-0 right-0 pb-4 pt-2 bg-gradient-to-t from-white from-50% to-transparent pointer-events-none">
+				<form onSubmit={handleSubmit} className="max-w-3xl mx-auto px-4 pointer-events-auto">
+					<div className="relative">
+						<input
+							type="text"
+							value={input}
+							onChange={(e) => setInput(e.target.value)}
+							onKeyDown={handleKeyDown}
+							placeholder="输入任务..."
+							className="w-full bg-white border border-zinc-300 rounded-2xl pl-4 pr-12 py-3 focus:outline-none focus:border-zinc-400 shadow-sm"
+							disabled={isRunning}
+						/>
+						<button
+							type="submit"
+							disabled={isRunning || !input.trim()}
+							className="absolute right-2 top-1/2 -translate-y-1/2 bg-zinc-900 hover:bg-zinc-700 disabled:bg-zinc-200 disabled:text-zinc-400 text-white w-8 h-8 rounded-lg flex items-center justify-center transition"
+						>
+							{isRunning ? "·" : "↑"}
+						</button>
+					</div>
+				</form>
+			</div>
 		</div>
 	);
 }
