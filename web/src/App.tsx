@@ -58,11 +58,21 @@ export default function App() {
 		messagesEndRef.current?.scrollIntoView({ behavior: "smooth" });
 	}, [messages]);
 
-	const handleKeyDown = (e: React.KeyboardEvent<HTMLInputElement>) => {
+	const handleKeyDown = (e: React.KeyboardEvent<HTMLTextAreaElement>) => {
+		// Enter 提交，Shift+Enter 换行
+		if (e.key === "Enter" && !e.shiftKey) {
+			e.preventDefault();
+			if (input.trim() && !isRunning) {
+				handleSubmit(e);
+			}
+			return;
+		}
+
+		// 历史记录导航
 		const history = getHistory();
 		if (history.length === 0) return;
 
-		if (e.key === "ArrowUp") {
+		if (e.key === "ArrowUp" && !input.includes("\n")) {
 			e.preventDefault();
 			if (historyIndex === -1) {
 				tempInputRef.current = input;
@@ -70,7 +80,7 @@ export default function App() {
 			const newIndex = Math.min(historyIndex + 1, history.length - 1);
 			setHistoryIndex(newIndex);
 			setInput(history[history.length - 1 - newIndex]);
-		} else if (e.key === "ArrowDown") {
+		} else if (e.key === "ArrowDown" && !input.includes("\n")) {
 			e.preventDefault();
 			if (historyIndex <= 0) {
 				setHistoryIndex(-1);
@@ -236,19 +246,25 @@ export default function App() {
 			<div className="fixed bottom-0 left-0 right-0 pb-4 pt-2 bg-gradient-to-t from-white from-50% to-transparent pointer-events-none">
 				<form onSubmit={handleSubmit} className="max-w-3xl mx-auto px-4 pointer-events-auto">
 					<div className="relative">
-						<input
-							type="text"
+						<textarea
 							value={input}
 							onChange={(e) => setInput(e.target.value)}
 							onKeyDown={handleKeyDown}
-							placeholder="输入任务..."
-							className="w-full bg-white border border-zinc-300 rounded-2xl pl-4 pr-12 py-3 focus:outline-none focus:border-zinc-400 shadow-sm"
+							placeholder="输入任务... (Shift+Enter 换行)"
+							rows={1}
+							className="w-full bg-white border border-zinc-300 rounded-2xl pl-4 pr-12 py-3 focus:outline-none focus:border-zinc-400 shadow-sm resize-none overflow-hidden"
 							disabled={isRunning}
+							style={{ minHeight: "48px", maxHeight: "200px" }}
+							onInput={(e) => {
+								const target = e.target as HTMLTextAreaElement;
+								target.style.height = "auto";
+								target.style.height = Math.min(target.scrollHeight, 200) + "px";
+							}}
 						/>
 						<button
 							type="submit"
 							disabled={isRunning || !input.trim()}
-							className="absolute right-2 top-1/2 -translate-y-1/2 bg-zinc-900 hover:bg-zinc-700 disabled:bg-zinc-200 disabled:text-zinc-400 text-white w-8 h-8 rounded-lg flex items-center justify-center transition"
+							className="absolute right-2 bottom-2 bg-zinc-900 hover:bg-zinc-700 disabled:bg-zinc-200 disabled:text-zinc-400 text-white w-8 h-8 rounded-lg flex items-center justify-center transition"
 						>
 							{isRunning ? "·" : "↑"}
 						</button>
