@@ -4,8 +4,9 @@
 
 import { os } from "@orpc/server";
 import { z } from "zod";
-import * as adb from "../actions/adb.ts";
-import { type StepResult, createAgent } from "../agent.ts";
+import * as adb from "../adb.ts";
+import { type TaskEvent, createAgent } from "../agent.ts";
+import { chat, chatWithModel } from "../llm.ts";
 import {
   appendAssistantMessage,
   appendUserMessage,
@@ -15,18 +16,7 @@ import {
   getSession,
 } from "../session.ts";
 
-// Schema 定义
-const StepSchema = z.object({
-  index: z.number(),
-  thinking: z.string(),
-  action: z.record(z.string(), z.unknown()).optional(),
-  screenshot: z.string(), // base64
-  success: z.boolean(),
-  finished: z.boolean(),
-  message: z.string().optional(),
-});
-
-// ============ Session 相关 ============
+// ============ Session ============
 
 export const sessionCreate = os
   .input(z.object({ deviceId: z.string() }))
@@ -46,15 +36,11 @@ export const sessionClose = os.handler(async () => {
 
 export const sessionGet = os.handler(async () => {
   const session = getSession();
-  if (!session) {
-    return null;
-  }
+  if (!session) return null;
 
   // 检查设备是否仍然连接
   const devices = await adb.listDevices();
-  const deviceConnected = devices.some((d) => d.deviceId === session.deviceId);
-  if (!deviceConnected) {
-    // 设备断开，销毁 session
+  if (!devices.some((d) => d.deviceId === session.deviceId)) {
     closeSession();
     return null;
   }
@@ -66,12 +52,11 @@ export const sessionGet = os.handler(async () => {
   };
 });
 
-// ============ 设备相关 ============
+// ============ Device ============
 
 export const listDevices = os.handler(async () => {
   const devices = await adb.listDevices();
-  // 并行获取所有设备截图
-  const devicesWithScreenshot = await Promise.all(
+  return Promise.all(
     devices.map(async (d) => {
       try {
         const screenshot = await adb.getScreenshot(d.deviceId);
@@ -81,7 +66,6 @@ export const listDevices = os.handler(async () => {
       }
     }),
   );
-  return devicesWithScreenshot;
 });
 
 export const deviceHome = os
@@ -107,11 +91,7 @@ export const deviceScreenshot = os
 
 export const deviceTap = os
   .input(
-    z.object({
-      deviceId: z.string().optional(),
-      x: z.number(),
-      y: z.number(),
-    }),
+    z.object({ deviceId: z.string().optional(), x: z.number(), y: z.number() }),
   )
   .handler(async ({ input }) => {
     await adb.tap(input.x, input.y, input.deviceId);
@@ -141,108 +121,99 @@ export const deviceSwipe = os
     return { success: true };
   });
 
-// ============ 任务相关 ============
+// ============ Task ============
+
+// 事件类型（router 输出）
+type RouterEvent =
+  | { type: "error"; error: string }
+  | { type: "started" }
+  | { type: "thinking"; stepIndex: number; screenshot: string }
+  | {
+      type: "inference";
+      stepIndex: number;
+      thinking: string;
+      screenshot: string;
+    }
+  | {
+      type: "action";
+      stepIndex: number;
+      action: Record<string, unknown>;
+      screenshot: string;
+    }
+  | { type: "step"; step: Record<string, unknown> }
+  | { type: "completed"; result: string }
+  | { type: "cancelled" }
+  | { type: "failed"; error: string };
 
 export const startTask = os
   .input(z.object({ task: z.string().min(1) }))
-  .handler(async function* ({ input }) {
+  .handler(async function* ({ input }): AsyncGenerator<RouterEvent> {
     const session = getSession();
     if (!session) {
-      yield { type: "error" as const, error: "请先创建会话" };
+      yield { type: "error", error: "请先创建会话" };
       return;
     }
 
-    // 追加用户消息到 session
     appendUserMessage(input.task);
 
-    // 创建 agent，传入历史上下文和 signal
     const agent = createAgent({
       deviceId: session.deviceId,
       signal: session.abortController.signal,
-      historyMessages: getHistoryMessages().slice(0, -1), // 排除刚添加的当前任务
+      historyMessages: getHistoryMessages().slice(0, -1),
     });
 
-    yield { type: "started" as const };
+    let lastResult = "";
+    let lastScreenshot = "";
 
     try {
-      agent.reset();
-      let stepIndex = 0;
-      let result: StepResult | undefined;
-      let lastThinking = "";
-
-      do {
-        // 检查是否被取消
-        if (session.abortController.signal.aborted) {
-          yield { type: "cancelled" as const };
-          return;
-        }
-
-        // 获取截图
-        const screenshot = await adb.getScreenshot(session.deviceId);
-
-        // 先发送截图，让前端显示"思考中"
-        yield { type: "thinking" as const, screenshot: screenshot.base64 };
-
-        // 执行一步（generator）- 使用 for await...of 处理所有事件
-        let currentThinking = "";
-        let currentAction: Record<string, unknown> | undefined;
-
-        for await (const event of agent.step(
-          stepIndex === 0 ? input.task : undefined,
-        )) {
-          if (event.type === "thinking") {
-            currentThinking = event.thinking;
-            // 立即发送 thinking
-            yield {
-              type: "inference" as const,
-              thinking: currentThinking,
-              screenshot: screenshot.base64,
-            };
-          } else if (event.type === "action") {
-            currentAction = event.action;
-            // 立即发送 action（执行前）
-            yield {
-              type: "action" as const,
-              action: currentAction,
-              screenshot: screenshot.base64,
-            };
-          } else if (event.type === "done") {
-            result = event.result;
-            lastThinking = result.thinking || currentThinking;
+      for await (const event of agent.runTask(input.task)) {
+        // 转换事件格式
+        if (event.type === "started") {
+          yield { type: "started" };
+        } else if (event.type === "screenshot") {
+          lastScreenshot = event.screenshot;
+          yield {
+            type: "thinking",
+            stepIndex: event.stepIndex,
+            screenshot: event.screenshot,
+          };
+        } else if (event.type === "thinking") {
+          lastScreenshot = event.screenshot;
+          yield {
+            type: "inference",
+            stepIndex: event.stepIndex,
+            thinking: event.thinking,
+            screenshot: event.screenshot,
+          };
+        } else if (event.type === "action") {
+          lastScreenshot = event.screenshot;
+          yield {
+            type: "action",
+            stepIndex: event.stepIndex,
+            action: event.action,
+            screenshot: event.screenshot,
+          };
+        } else if (event.type === "step") {
+          yield { type: "step", step: event.step };
+        } else if (event.type === "completed") {
+          lastResult = event.result;
+          appendAssistantMessage(event.result, lastScreenshot);
+          yield { type: "completed", result: event.result };
+        } else if (event.type === "cancelled") {
+          yield { type: "cancelled" };
+        } else if (event.type === "failed") {
+          if (!event.error.includes("abort")) {
+            appendAssistantMessage(`执行出错: ${event.error}`, lastScreenshot);
           }
+          yield { type: "failed", error: event.error };
         }
-
-        // 发送执行结果
-        if (!result) {
-          yield { type: "failed" as const, error: "步骤未返回结果" };
-          return;
-        }
-
-        const step: z.infer<typeof StepSchema> = {
-          index: stepIndex++,
-          thinking: result.thinking,
-          action: result.action,
-          screenshot: screenshot.base64,
-          success: result.success,
-          finished: result.finished,
-          message: result.message,
-        };
-
-        yield { type: "step" as const, step };
-      } while (!result?.finished && stepIndex < 100);
-
-      // 追加助手消息到 session（包含最终结果）
-      const assistantMessage = result?.message || lastThinking || "完成";
-      appendAssistantMessage(assistantMessage);
-
-      yield { type: "completed" as const, result: assistantMessage };
-    } catch (e) {
-      const errorMsg = String(e);
-      // 如果是 abort 错误，不追加消息
-      if (!errorMsg.includes("abort")) {
-        appendAssistantMessage(`执行出错: ${errorMsg}`);
       }
-      yield { type: "failed" as const, error: errorMsg };
+    } catch (e) {
+      const error = String(e);
+      if (!error.includes("abort")) {
+        appendAssistantMessage(`执行出错: ${error}`, lastScreenshot);
+      }
+      yield { type: "failed", error };
     }
   });
 
@@ -250,28 +221,73 @@ export const cancelTask = os.handler(async () => {
   const session = getSession();
   if (session) {
     session.abortController.abort();
-    // 重新创建 abortController 以便下次任务可以继续
     session.abortController = new AbortController();
   }
   return { success: true };
 });
 
-// ============ 配置 ============
+// ============ Config ============
 
-export const configGet = os.handler(async () => {
+export const configGet = os.handler(async () => ({
+  model: process.env.AUTOGLM_MODEL || "unknown",
+}));
+
+// ============ Skill ============
+
+export const generateSkill = os.handler(async () => {
+  const messages = getHistoryMessages();
+  if (messages.length === 0) {
+    return { error: "没有会话历史" };
+  }
+
+  // 构建总结用的消息
+  const summaryMessages = [
+    {
+      role: "system" as const,
+      content: `你是一个任务总结助手。用户会给你一段手机自动化操作的对话历史，请总结出一个可复用的任务模板。
+
+输出格式（严格遵守）：
+<title>简短的任务名称，不超过10个字</title>
+<content>详细的任务描述，描述这个任务要做什么，以便下次直接使用</content>
+
+注意：
+1. 标题要简洁明了，如"点瑞幸咖啡"、"搜索美食攻略"
+2. 内容要具体但通用，不要包含特定的时间、地点等细节
+3. 只输出 title 和 content 标签，不要有其他内容`,
+    },
+    {
+      role: "user" as const,
+      content: `请总结以下对话历史：\n\n${messages
+        .map((m) => `${m.role}: ${m.content}`)
+        .join("\n\n")}`,
+    },
+  ];
+
+  // 调用通用模型生成总结
+  const generalModel = process.env.AUTOGLM_GENERAL_MODEL || "glm-4-flash";
+  let result = "";
+  for await (const chunk of chatWithModel(summaryMessages, generalModel)) {
+    result += chunk;
+  }
+
+  // 解析结果
+  const titleMatch = result.match(/<title>([\s\S]*?)<\/title>/);
+  const contentMatch = result.match(/<content>([\s\S]*?)<\/content>/);
+
+  if (!titleMatch || !contentMatch) {
+    return { error: "解析失败", raw: result };
+  }
+
   return {
-    model: process.env.AUTOGLM_MODEL || "unknown",
+    title: titleMatch[1].trim(),
+    content: contentMatch[1].trim(),
   };
 });
 
-// ============ 路由 ============
+// ============ Router ============
 
 export const router = {
-  session: {
-    create: sessionCreate,
-    close: sessionClose,
-    get: sessionGet,
-  },
+  session: { create: sessionCreate, close: sessionClose, get: sessionGet },
   device: {
     list: listDevices,
     home: deviceHome,
@@ -280,13 +296,9 @@ export const router = {
     tap: deviceTap,
     swipe: deviceSwipe,
   },
-  task: {
-    start: startTask,
-    cancel: cancelTask,
-  },
-  config: {
-    get: configGet,
-  },
+  task: { start: startTask, cancel: cancelTask },
+  config: { get: configGet },
+  skill: { generate: generateSkill },
 };
 
 export type Router = typeof router;

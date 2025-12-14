@@ -29,21 +29,24 @@ export default function App() {
       }
     });
 
-    client.session.get().then((data) => {
+    client.session.get().then(async (data) => {
       if (data) {
-        // 恢复历史消息
+        // 恢复完整历史消息（包括截图）
         const restored: Message[] = data.messages.map((m: SessionMessage) =>
           m.role === "user"
             ? { role: "user" as const, content: m.content }
             : {
                 role: "assistant" as const,
                 thinking: m.content,
+                screenshot: m.screenshot,
                 finished: true,
               },
         );
         setMessages(restored);
-        // 恢复设备（只设置 deviceId，其他信息从设备列表获取）
-        setSelectedDevice({ deviceId: data.deviceId });
+        // 恢复设备（从设备列表获取完整信息）
+        const devices = await client.device.list();
+        const device = devices.find((d) => d.deviceId === data.deviceId);
+        setSelectedDevice(device || { deviceId: data.deviceId });
       }
     });
   }, []);

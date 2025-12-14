@@ -3,7 +3,7 @@
  */
 
 import { z } from "zod";
-import * as adb from "./adb.ts";
+import * as adb from "../adb.ts";
 import { type ActionDef, Coordinate, delay, toAbsolute } from "./types.ts";
 
 const SwipeSchema = z.object({

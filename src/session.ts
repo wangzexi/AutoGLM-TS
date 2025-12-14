@@ -4,7 +4,8 @@
 
 export type SessionMessage = {
   role: "user" | "assistant";
-  content: string; // 纯文本，不存图片
+  content: string;
+  screenshot?: string; // 助手消息的截图
 };
 
 export type Session = {
@@ -70,9 +71,9 @@ export const appendUserMessage = (content: string): void => {
 /**
  * 追加助手消息
  */
-export const appendAssistantMessage = (content: string): void => {
+export const appendAssistantMessage = (content: string, screenshot?: string): void => {
   if (!currentSession) return;
-  currentSession.messages.push({ role: "assistant", content });
+  currentSession.messages.push({ role: "assistant", content, screenshot });
 };
 
 /**

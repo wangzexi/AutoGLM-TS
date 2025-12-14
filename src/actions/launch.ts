@@ -3,7 +3,7 @@
  */
 
 import { z } from "zod";
-import * as adb from "./adb.ts";
+import * as adb from "../adb.ts";
 import { type ActionDef, delay } from "./types.ts";
 
 const LaunchSchema = z.object({ action: z.literal("Launch"), app: z.string() });

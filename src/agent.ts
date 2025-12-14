@@ -1,17 +1,13 @@
 /**
- * PhoneAgent - 纯函数 + 闭包实现
+ * PhoneAgent - 手机自动化代理
  */
 
-import * as adb from "./actions/adb.ts";
-import {
-  type Action,
-  type ActionContext,
-  executeAction,
-  parseAction,
-} from "./actions/index.ts";
+import * as adb from "./adb.ts";
+import { type ActionContext, executeAction } from "./actions/index.ts";
 import { buildSystemPrompt } from "./config.ts";
+import { type Message, chat, parseResponse, streamParse } from "./llm.ts";
 
-// 类型
+// 步骤结果
 export type StepResult = {
   success: boolean;
   finished: boolean;
@@ -20,180 +16,91 @@ export type StepResult = {
   message?: string;
 };
 
-// 统一用 yield，不用 return，这样 for await...of 能正确处理所有事件
+// 步骤事件（流式）
 export type StepEvent =
+  | { type: "screenshot"; screenshot: string } // 新增：截图事件
   | { type: "thinking"; thinking: string }
   | { type: "action"; action: Record<string, unknown> }
   | { type: "done"; result: StepResult };
 
-type Message = {
-  role: "system" | "user" | "assistant";
-  content:
-    | string
-    | Array<{ type: string; text?: string; image_url?: { url: string } }>;
+// 任务事件（给 router 用）
+export type TaskEvent =
+  | { type: "started" }
+  | { type: "screenshot"; stepIndex: number; screenshot: string }
+  | { type: "thinking"; stepIndex: number; thinking: string; screenshot: string }
+  | { type: "action"; stepIndex: number; action: Record<string, unknown>; screenshot: string }
+  | { type: "step"; step: StepData }
+  | { type: "completed"; result: string }
+  | { type: "cancelled" }
+  | { type: "failed"; error: string };
+
+export type StepData = {
+  index: number;
+  thinking: string;
+  action?: Record<string, unknown>;
+  screenshot: string;
+  success: boolean;
+  finished: boolean;
+  message?: string;
 };
 
 type AgentConfig = {
   deviceId?: string;
-  signal?: AbortSignal; // 用于终止执行
-  historyMessages?: Array<{ role: "user" | "assistant"; content: string }>; // 历史上下文
+  signal?: AbortSignal;
+  historyMessages?: Array<{ role: "user" | "assistant"; content: string }>;
 };
 
-// 流式调用 OpenAI 兼容 API
-async function* chat(
-  baseUrl: string,
-  apiKey: string,
-  model: string,
-  messages: Message[],
-  signal?: AbortSignal,
-) {
-  const res = await fetch(`${baseUrl}/chat/completions`, {
-    method: "POST",
-    headers: {
-      "Content-Type": "application/json",
-      Authorization: `Bearer ${apiKey}`,
-    },
-    body: JSON.stringify({
-      model,
-      messages,
-      max_tokens: 3000,
-      temperature: 0,
-      top_p: 0.85,
-      frequency_penalty: 0.2,
-      stream: true,
-    }),
-    signal,
-  });
-
-  if (!res.ok) throw new Error(`API 错误: ${res.status}`);
-  if (!res.body) throw new Error("无响应体");
-
-  const reader = res.body.getReader();
-  const decoder = new TextDecoder();
-  let buffer = "";
-
-  while (true) {
-    const { done, value } = await reader.read();
-    if (done) break;
-
-    buffer += decoder.decode(value, { stream: true });
-    const lines = buffer.split("\n");
-    buffer = lines.pop() || "";
-
-    for (const line of lines) {
-      if (!line.startsWith("data: ")) continue;
-      const data = line.slice(6);
-      if (data === "[DONE]") return;
-
-      try {
-        const json = JSON.parse(data);
-        const content = json.choices?.[0]?.delta?.content;
-        if (content) yield content;
-      } catch {}
-    }
-  }
-}
-
-// 解析模型响应：提取 thinking，解析并验证 action
-type ParseResult = {
-  thinking: string;
-  action?: Action;
-  error?: string;
-};
-
-// 移除所有 XML 风格标签（如 <think>, </answer> 等）
-const stripTags = (text: string) => text.replace(/<\/?[a-z_]+>/gi, "").trim();
-
-const parseResponse = (content: string): ParseResult => {
-  const markers = ["finish(", "do("];
-
-  for (const marker of markers) {
-    const idx = content.indexOf(marker);
-    if (idx === -1) continue;
-
-    // 找到闭合的 )
-    let depth = 0;
-    let end = -1;
-    for (let i = idx; i < content.length; i++) {
-      if (content[i] === "(") depth++;
-      else if (content[i] === ")") {
-        depth--;
-        if (depth === 0) {
-          end = i + 1;
-          break;
-        }
-      }
-    }
-
-    if (end === -1) continue;
-
-    const thinking = stripTags(content.slice(0, idx));
-    const actionStr = content.slice(idx, end);
-
-    // 解析并验证 action
-    const parseResult = parseAction(actionStr);
-    if (parseResult.success) {
-      return { thinking, action: parseResult.data };
-    }
-    return { thinking, error: parseResult.error };
-  }
-
-  // 没有找到 action
-  return { thinking: stripTags(content) };
-};
-
-// 创建 Agent（闭包工厂）
+/**
+ * 创建 Agent
+ */
 export const createAgent = (config: AgentConfig = {}) => {
-  const baseUrl =
-    process.env.AUTOGLM_BASE_URL ||
-    "https://open.bigmodel.cn/api/paas/v4";
-  const apiKey = process.env.AUTOGLM_API_KEY || "";
-  const model =
-    process.env.AUTOGLM_MODEL || "autoglm-phone";
-  const deviceId = config.deviceId;
-  const maxSteps = parseInt(process.env.AUTOGLM_MAX_STEPS || "100", 10);
-  const signal = config.signal;
-  const historyMessages = config.historyMessages || [];
+  const { deviceId, signal, historyMessages = [] } = config;
+  const maxSteps = Number.parseInt(process.env.AUTOGLM_MAX_STEPS || "100", 10);
 
   // 状态
-  let context: Message[] = [];
+  let messages: Message[] = [];
   let currentTask = "";
   let stepCount = 0;
+  let lastScreenshot = ""; // 缓存最后一张截图
 
   const reset = () => {
-    context = [];
+    messages = [];
     currentTask = "";
     stepCount = 0;
+    lastScreenshot = "";
   };
 
-  const step = async function* (
-    task?: string,
-  ): AsyncGenerator<StepEvent, void> {
+  /**
+   * 执行一步（底层 generator）
+   */
+  const step = async function* (task?: string): AsyncGenerator<StepEvent> {
     stepCount++;
 
-    // 首次调用设置任务
     if (task) currentTask = task;
     if (!currentTask) throw new Error("需要设置 task");
 
-    const isFirst = context.length === 0;
+    const isFirst = messages.length === 0;
 
-    // 获取屏幕
+    // 获取屏幕状态
     const screenshot = await adb.getScreenshot(deviceId);
+    lastScreenshot = screenshot.base64;
     const currentApp = await adb.getCurrentApp(deviceId);
+
+    // yield 截图（让调用者知道当前屏幕）
+    yield { type: "screenshot", screenshot: screenshot.base64 };
 
     // 构建消息
     if (isFirst) {
-      context.push({ role: "system", content: buildSystemPrompt() });
-      // 添加历史上下文（来自 session）
+      messages.push({ role: "system", content: buildSystemPrompt() });
       for (const msg of historyMessages) {
-        context.push({ role: msg.role, content: msg.content });
+        messages.push({ role: msg.role, content: msg.content });
       }
     }
 
     const screenInfo = `当前应用: ${currentApp}`;
     const text = isFirst ? `${currentTask}\n\n${screenInfo}` : screenInfo;
 
-    context.push({
+    messages.push({
       role: "user",
       content: [
         {
@@ -204,62 +111,17 @@ export const createAgent = (config: AgentConfig = {}) => {
       ],
     });
 
-    // 调用模型
+    // 调用模型（流式）
     let rawContent = "";
 
     try {
-      let inAction = false;
-      let buffer = "";
-      let lastYieldedThinking = "";
+      const chunks = chat(messages, signal);
 
-      for await (const chunk of chat(baseUrl, apiKey, model, context, signal)) {
-        rawContent += chunk;
-
-        if (inAction) continue;
-
-        buffer += chunk;
-
-        // 检测 do() 或 finish() action 开始
-        const markers = ["do(", "finish("];
-        let foundMarker = false;
-        for (const marker of markers) {
-          const idx = buffer.indexOf(marker);
-          if (idx !== -1) {
-            // yield 最终 thinking
-            const thinking = stripTags(buffer.slice(0, idx));
-            if (thinking !== lastYieldedThinking) {
-              yield { type: "thinking", thinking };
-              lastYieldedThinking = thinking;
-            }
-            process.stdout.write("\n");
-            inAction = true;
-            foundMarker = true;
-            break;
-          }
-        }
-
-        if (foundMarker) continue;
-
-        // 检测潜在 marker（避免截断）
-        let isPotential = false;
-        for (const marker of markers) {
-          for (let i = 1; i < marker.length; i++) {
-            if (buffer.endsWith(marker.slice(0, i))) {
-              isPotential = true;
-              break;
-            }
-          }
-          if (isPotential) break;
-        }
-
-        // 流式输出 thinking（实时显示）
-        if (!isPotential) {
-          const thinking = stripTags(buffer);
-          if (thinking && thinking !== lastYieldedThinking) {
-            yield { type: "thinking", thinking };
-            lastYieldedThinking = thinking;
-            process.stdout.write(chunk);
-          }
+      for await (const event of streamParse(chunks)) {
+        if (event.type === "thinking") {
+          yield { type: "thinking", thinking: event.thinking };
+        } else if (event.type === "done") {
+          rawContent = event.content;
         }
       }
     } catch (e) {
@@ -278,28 +140,26 @@ export const createAgent = (config: AgentConfig = {}) => {
     // 解析响应
     const { thinking, action, error } = parseResponse(rawContent);
 
-    // 确保 yield 完整的 thinking（流式时可能是空或不完整的）
+    // yield 完整 thinking
     if (thinking) {
       yield { type: "thinking", thinking };
     }
 
     // 记录 assistant 响应
-    context.push({ role: "assistant", content: rawContent });
+    messages.push({ role: "assistant", content: rawContent });
 
-    // 解析失败，反馈给模型重试
+    // 解析失败 -> 反馈给模型重试
     if (error) {
-      console.error(`\n❌ Action 解析失败: ${error}`);
-      context.push({
+      messages.push({
         role: "user",
         content: `Action 格式错误: ${error}\n请修正后重新输出。`,
       });
       stepCount--;
-      // 递归调用 step，转发所有事件
       yield* step();
       return;
     }
 
-    // 没有 action，当作完成
+    // 无 action -> 当作完成
     if (!action) {
       yield {
         type: "done",
@@ -309,15 +169,13 @@ export const createAgent = (config: AgentConfig = {}) => {
     }
 
     // yield action（执行前）
-    const actionForExec = action as Record<string, unknown>;
-    yield { type: "action", action: actionForExec };
+    const actionObj = action as Record<string, unknown>;
+    yield { type: "action", action: actionObj };
 
     // 移除历史图片（节省 token）
-    const prevUserMsg = context.at(-2);
+    const prevUserMsg = messages.at(-2);
     if (prevUserMsg && Array.isArray(prevUserMsg.content)) {
-      prevUserMsg.content = prevUserMsg.content.filter(
-        (c) => c.type === "text",
-      );
+      prevUserMsg.content = prevUserMsg.content.filter((c) => c.type === "text");
     }
 
     // 执行动作
@@ -327,50 +185,106 @@ export const createAgent = (config: AgentConfig = {}) => {
       screenHeight: screenshot.height,
     };
 
-    const execResult = await executeAction(actionForExec, ctx);
+    const execResult = await executeAction(actionObj, ctx);
 
-    const isFinish = actionForExec.action === "finish";
+    const isFinish = actionObj.action === "finish";
     yield {
       type: "done",
       result: {
         success: execResult.success,
         finished: isFinish || execResult.finished || false,
         thinking,
-        action: actionForExec,
+        action: actionObj,
         message:
           execResult.message ||
-          (isFinish ? (actionForExec.message as string) : undefined),
+          (isFinish ? (actionObj.message as string) : undefined),
       },
     };
   };
 
-  const run = async (task: string) => {
+  /**
+   * 运行完整任务（流式，给 router 用）
+   */
+  const runTask = async function* (task: string): AsyncGenerator<TaskEvent> {
     reset();
+    yield { type: "started" };
 
+    let stepIndex = 0;
     let result: StepResult | undefined;
+    let lastThinking = "";
 
-    // 消耗 step generator，提取最终结果
-    for await (const event of step(task)) {
-      if (event.type === "done") {
-        result = event.result;
-      }
-    }
-
-    while (result && !result.finished && stepCount < maxSteps) {
-      // 检查是否被终止
-      if (signal?.aborted) {
-        return "任务已取消";
-      }
-      // 消耗后续 step
-      for await (const event of step()) {
-        if (event.type === "done") {
-          result = event.result;
+    try {
+      do {
+        if (signal?.aborted) {
+          yield { type: "cancelled" };
+          return;
         }
-      }
-    }
 
-    return result?.message || "完成";
+        let currentThinking = "";
+        let currentScreenshot = "";
+
+        for await (const event of step(stepIndex === 0 ? task : undefined)) {
+          if (event.type === "screenshot") {
+            currentScreenshot = event.screenshot;
+            yield { type: "screenshot", stepIndex, screenshot: event.screenshot };
+          } else if (event.type === "thinking") {
+            currentThinking = event.thinking;
+            yield {
+              type: "thinking",
+              stepIndex,
+              thinking: event.thinking,
+              screenshot: currentScreenshot,
+            };
+          } else if (event.type === "action") {
+            yield {
+              type: "action",
+              stepIndex,
+              action: event.action,
+              screenshot: currentScreenshot,
+            };
+          } else if (event.type === "done") {
+            result = event.result;
+            lastThinking = result.thinking || currentThinking;
+          }
+        }
+
+        if (!result) {
+          yield { type: "failed", error: "步骤未返回结果" };
+          return;
+        }
+
+        yield {
+          type: "step",
+          step: {
+            index: stepIndex++,
+            thinking: result.thinking,
+            action: result.action,
+            screenshot: currentScreenshot,
+            success: result.success,
+            finished: result.finished,
+            message: result.message,
+          },
+        };
+      } while (!result?.finished && stepIndex < maxSteps);
+
+      yield { type: "completed", result: result?.message || lastThinking || "完成" };
+    } catch (e) {
+      yield { type: "failed", error: String(e) };
+    }
   };
 
-  return { run, step, reset };
+  /**
+   * 运行完整任务（简单版，返回最终结果）
+   */
+  const run = async (task: string) => {
+    let finalResult = "完成";
+    for await (const event of runTask(task)) {
+      if (event.type === "completed") finalResult = event.result;
+      else if (event.type === "failed") throw new Error(event.error);
+      else if (event.type === "cancelled") return "任务已取消";
+    }
+    return finalResult;
+  };
+
+  return { run, runTask, step, reset, getLastScreenshot: () => lastScreenshot };
 };

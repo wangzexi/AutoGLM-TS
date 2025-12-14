@@ -4,16 +4,19 @@ export type Message =
   | { role: "user"; content: string }
   | {
       role: "assistant";
+      stepIndex?: number; // 步骤索引，用于匹配更新
       thinking: string;
       action?: Record<string, unknown>;
       screenshot?: string;
       finished?: boolean;
       message?: string;
+      error?: string;
     };
 
 export type SessionMessage = {
   role: "user" | "assistant";
   content: string;
+  screenshot?: string;
 };
 
 export type Device = {

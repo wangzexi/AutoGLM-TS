@@ -1,4 +1,5 @@
-import { CheckCircle, SquareFunction } from "lucide-react";
+import { AlertCircle, CheckCircle, SquareFunction } from "lucide-react";
+import Markdown from "markdown-to-jsx";
 import { useEffect, useRef } from "react";
 import type { Message } from "../AppContext";
 import { useAppContext } from "../AppContext";
@@ -26,14 +27,37 @@ type MessageListProps = {
 
 export function MessageList({ messages }: MessageListProps) {
   const { setEnlargedScreenshot } = useAppContext();
+  const containerRef = useRef<HTMLDivElement>(null);
   const messagesEndRef = useRef<HTMLDivElement>(null);
+  const isAtBottomRef = useRef(true); // 记录是否在底部
 
+  // 检测是否接近底部（允许 50px 误差）
+  const checkIfAtBottom = () => {
+    const container = containerRef.current;
+    if (!container) return true;
+    const { scrollTop, scrollHeight, clientHeight } = container;
+    return scrollHeight - scrollTop - clientHeight < 50;
+  };
+
+  // 滚动时更新状态
+  const handleScroll = () => {
+    isAtBottomRef.current = checkIfAtBottom();
+  };
+
+  // 消息更新时，只有在底部才自动滚动
+  // biome-ignore lint/correctness/useExhaustiveDependencies: scroll on messages change
   useEffect(() => {
-    messagesEndRef.current?.scrollIntoView({ behavior: "smooth" });
+    if (isAtBottomRef.current) {
+      messagesEndRef.current?.scrollIntoView({ behavior: "smooth" });
+    }
   }, [messages]);
 
   return (
-    <div className="flex-1 overflow-y-auto px-4 pt-4 pb-32 space-y-6">
+    <div
+      ref={containerRef}
+      onScroll={handleScroll}
+      className="flex-1 overflow-y-auto px-4 pt-4 pb-32 space-y-6"
+    >
       {messages.map((msg, i) =>
         msg.role === "user" ? (
           // biome-ignore lint/suspicious/noArrayIndexKey: messages array is immutable, index is stable
@@ -45,42 +69,65 @@ export function MessageList({ messages }: MessageListProps) {
         ) : (
           // biome-ignore lint/suspicious/noArrayIndexKey: messages array is immutable, index is stable
           <div key={`assistant-${i}`} className="flex gap-3 items-start">
-            {msg.screenshot && (
-              <img
-                src={`data:image/png;base64,${msg.screenshot}`}
-                alt={`Step ${i}`}
-                className="w-24 h-auto flex-shrink-0 rounded-lg shadow border border-zinc-200 cursor-pointer hover:opacity-80 transition"
-                onClick={() => {
-                  if (msg.screenshot) {
-                    setEnlargedScreenshot(msg.screenshot);
-                  }
-                }}
-                onKeyDown={(e) => {
-                  if ((e.key === "Enter" || e.key === " ") && msg.screenshot) {
-                    setEnlargedScreenshot(msg.screenshot);
-                  }
-                }}
-              />
-            )}
+            {msg.screenshot &&
+              (() => {
+                // 判断是否是当前运行中的消息（最后一条且未完成）
+                const isRunning = i === messages.length - 1 && !msg.finished;
+                return (
+                  <img
+                    src={`data:image/png;base64,${msg.screenshot}`}
+                    alt={`Step ${i}`}
+                    className={`w-24 h-auto flex-shrink-0 rounded-lg shadow border border-zinc-200 cursor-pointer hover:opacity-80 transition ${
+                      isRunning ? "" : "opacity-50 grayscale-[30%]"
+                    }`}
+                    onClick={() => {
+                      if (msg.screenshot) {
+                        setEnlargedScreenshot(msg.screenshot);
+                      }
+                    }}
+                    onKeyDown={(e) => {
+                      if (
+                        (e.key === "Enter" || e.key === " ") &&
+                        msg.screenshot
+                      ) {
+                        setEnlargedScreenshot(msg.screenshot);
+                      }
+                    }}
+                  />
+                );
+              })()}
             <div className="flex-1 space-y-2">
-              {msg.thinking ? (
-                <p className="text-zinc-700 whitespace-pre-wrap">
-                  {msg.thinking.replace(/\\n/g, "\n")}
-                </p>
-              ) : (
-                <span className="inline-block w-0.5 h-4 bg-zinc-400 animate-[pulse_0.8s_ease-in-out_infinite]" />
+              {/* 错误显示 */}
+              {msg.error && (
+                <div className="flex gap-2 text-red-600">
+                  <AlertCircle size={14} className="flex-shrink-0 mt-0.5" />
+                  <p className="whitespace-pre-wrap text-sm">
+                    {msg.error.replace(/\\n/g, "\n")}
+                  </p>
+                </div>
               )}
+              {/* thinking 显示 */}
+              {!msg.error &&
+                (msg.thinking ? (
+                  <div className="text-sm text-zinc-700 whitespace-pre-wrap break-words contain-layout">
+                    <Markdown>{msg.thinking.replace(/\\n/g, "\n")}</Markdown>
+                  </div>
+                ) : !msg.action ? (
+                  <span className="inline-block w-0.5 h-4 bg-zinc-400 animate-[pulse_0.8s_ease-in-out_infinite]" />
+                ) : null)}
               {msg.action && (
                 <div className="text-sm">
                   {msg.action.action === "finish" ? (
                     <div className="flex gap-2 text-green-600">
                       <CheckCircle size={14} className="flex-shrink-0 mt-0.5" />
-                      <p className="whitespace-pre-wrap">
-                        {String(msg.action.message || "完成").replace(
-                          /\\n/g,
-                          "\n",
-                        )}
-                      </p>
+                      <div className="text-sm whitespace-pre-wrap break-words contain-layout">
+                        <Markdown>
+                          {String(msg.action.message || "完成").replace(
+                            /\\n/g,
+                            "\n",
+                          )}
+                        </Markdown>
+                      </div>
                     </div>
                   ) : msg.action.action === "Take_over" ? (
                     <div className="flex gap-2 text-amber-600">

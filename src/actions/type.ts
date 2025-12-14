@@ -3,7 +3,7 @@
  */
 
 import { z } from "zod";
-import * as adb from "./adb.ts";
+import * as adb from "../adb.ts";
 import { type ActionContext, type ActionDef, delay } from "./types.ts";
 
 // 公共 handler

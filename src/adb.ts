@@ -1,42 +1,37 @@
 /**
- * ADB 操作：设备交互
+ * ADB 操作
  */
 
 import { type Adb, AdbServerClient } from "@yume-chan/adb";
 import { AdbServerNodeTcpConnector } from "@yume-chan/adb-server-node-tcp";
 import sharp from "sharp";
-import { APP_PACKAGES } from "../config.ts";
+import { APP_PACKAGES } from "./config.ts";
 
-// 单例
-let client: AdbServerClient | undefined;
+// 直接导出实例（模块本身就是单例）
+export const client = new AdbServerClient(
+  new AdbServerNodeTcpConnector({ host: "localhost", port: 5037 }),
+);
+
+// Adb 实例缓存（按设备）
 const adbCache = new Map<string, Adb>();
-
-function getClient(): AdbServerClient {
-  if (!client) {
-    client = new AdbServerClient(
-      new AdbServerNodeTcpConnector({ host: "localhost", port: 5037 }),
-    );
-  }
-  return client;
-}
 
 async function getAdb(deviceId?: string): Promise<Adb> {
   const key = deviceId || "default";
   const cached = adbCache.get(key);
   if (cached) return cached;
 
-  const devices = await getClient().getDevices();
+  const devices = await client.getDevices();
   const target = deviceId
     ? devices.find((d) => d.serial === deviceId)
     : devices[0];
-
   if (!target) throw new Error("设备未找到");
 
-  const adb = await getClient().createAdb({ serial: target.serial });
+  const adb = await client.createAdb({ serial: target.serial });
   adbCache.set(key, adb);
   return adb;
 }
 
+// 执行 shell 命令（@yume-chan/adb 没有原生 input API，只能用 shell）
 async function shell(cmd: string, deviceId?: string): Promise<string> {
   const adb = await getAdb(deviceId);
   const socket = await adb.createSocket(`shell:${cmd}`);
@@ -46,25 +41,22 @@ async function shell(cmd: string, deviceId?: string): Promise<string> {
   return Buffer.concat(chunks).toString("utf-8");
 }
 
-// 设备操作
+// ========== 设备 ==========
+
 export async function listDevices() {
-  const devices = await getClient().getDevices();
-  return await Promise.all(
+  const devices = await client.getDevices();
+  return Promise.all(
     devices.map(async (d) => {
-      // 获取品牌、型号名和系统版本
       let brand = "";
       let marketName = "";
       let androidVersion = "";
       try {
-        const adb = await getClient().createAdb({ serial: d.serial });
-        const socket = await adb.createSocket(
-          "shell:getprop ro.product.brand && getprop ro.product.marketname && getprop ro.build.version.release",
+        const adb = await client.createAdb({ serial: d.serial });
+        const output = await shell(
+          "getprop ro.product.brand && getprop ro.product.marketname && getprop ro.build.version.release",
+          d.serial,
         );
-        const chunks: Uint8Array[] = [];
-        for await (const chunk of socket.readable) chunks.push(chunk);
-        socket.close();
-        const output = Buffer.concat(chunks).toString("utf-8").trim();
-        const lines = output.split("\n");
+        const lines = output.trim().split("\n");
         brand = lines[0]?.trim() || "";
         marketName = lines[1]?.trim() || "";
         androidVersion = lines[2]?.trim() || "";
@@ -91,48 +83,37 @@ export async function getCurrentApp(deviceId?: string): Promise<string> {
   return "System";
 }
 
-// 输入操作
-export async function tap(x: number, y: number, deviceId?: string) {
-  await shell(`input tap ${x} ${y}`, deviceId);
-}
+// ========== 输入 ==========
 
-export async function swipe(
+export const tap = (x: number, y: number, deviceId?: string) =>
+  shell(`input tap ${x} ${y}`, deviceId);
+
+export const swipe = (
   x1: number,
   y1: number,
   x2: number,
   y2: number,
   duration = 300,
   deviceId?: string,
-) {
-  await shell(`input swipe ${x1} ${y1} ${x2} ${y2} ${duration}`, deviceId);
-}
+) => shell(`input swipe ${x1} ${y1} ${x2} ${y2} ${duration}`, deviceId);
 
-export async function longPress(x: number, y: number, deviceId?: string) {
-  await shell(`input swipe ${x} ${y} ${x} ${y} 2000`, deviceId);
-}
+export const longPress = (x: number, y: number, deviceId?: string) =>
+  shell(`input swipe ${x} ${y} ${x} ${y} 2000`, deviceId);
 
-export async function back(deviceId?: string) {
-  await shell("input keyevent 4", deviceId);
-}
-
-export async function home(deviceId?: string) {
-  await shell("input keyevent 3", deviceId);
-}
-
-export async function recent(deviceId?: string) {
-  await shell("input keyevent 187", deviceId);
-}
+export const back = (deviceId?: string) => shell("input keyevent 4", deviceId);
+export const home = (deviceId?: string) => shell("input keyevent 3", deviceId);
+export const recent = (deviceId?: string) =>
+  shell("input keyevent 187", deviceId);
 
 export async function typeText(text: string, deviceId?: string) {
-  // 使用 Base64 编码发送（支持中文和特殊字符）
   const encoded = Buffer.from(text, "utf8").toString("base64");
   await shell(`am broadcast -a ADB_INPUT_B64 --es msg '${encoded}'`, deviceId);
 }
 
 export async function clearText(deviceId?: string) {
-  await shell("input keyevent 28", deviceId); // KEYCODE_CLEAR
+  await shell("input keyevent 28", deviceId);
   await shell("input keyevent KEYCODE_CTRL_LEFT KEYCODE_A", deviceId);
-  await shell("input keyevent 67", deviceId); // DEL
+  await shell("input keyevent 67", deviceId);
 }
 
 export async function launchApp(
@@ -148,12 +129,9 @@ export async function launchApp(
   return true;
 }
 
-// 截图
-export type Screenshot = {
-  base64: string;
-  width: number;
-  height: number;
-};
+// ========== 截图 ==========
+
+export type Screenshot = { base64: string; width: number; height: number };
 
 export async function getScreenshot(deviceId?: string): Promise<Screenshot> {
   try {
@@ -165,14 +143,12 @@ export async function getScreenshot(deviceId?: string): Promise<Screenshot> {
 
     const buffer = Buffer.concat(chunks);
     const meta = await sharp(buffer).metadata();
-
     return {
       base64: buffer.toString("base64"),
       width: meta.width || 1080,
       height: meta.height || 2400,
     };
-  } catch (e) {
-    // 返回黑屏
+  } catch {
     const black = await sharp({
       create: { width: 1080, height: 2400, channels: 3, background: "#000" },
     })

@@ -76,7 +76,8 @@ npm run dev # 或开发模式（代码热重载）
 | 变量 | 说明 | 必需 | 示例 |
 |------|------|------|------|
 | `AUTOGLM_BASE_URL` | LLM API 服务地址 | ✅ | `https://open.bigmodel.cn/api/paas/v4` |
-| `AUTOGLM_MODEL` | 使用的模型标识 | ✅ | `autoglm-phone` |
+| `AUTOGLM_MODEL` | 手机自动化模型 | ✅ | `autoglm-phone` |
+| `AUTOGLM_GENERAL_MODEL` | 通用任务模型（技能总结等） | ❌ | `glm-4-flash`（默认） |
 | `AUTOGLM_API_KEY` | API 认证密钥 | ✅ | 从服务商获取 |
 | `AUTOGLM_MAX_STEPS` | 单次任务最大执行步数 | ❌ | `100`（默认） |
 
