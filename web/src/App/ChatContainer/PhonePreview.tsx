@@ -1,7 +1,7 @@
 import { useMutation, useQuery } from "@tanstack/react-query";
 import { Home, ImageDown, LayoutGrid, X } from "lucide-react";
 import { useRef, useState } from "react";
-import { useAppContext } from "../contexts/AppContext";
+import { useAppContext } from "../AppContext";
 
 async function rpc(path: string, json: Record<string, unknown>) {
   return fetch(`/rpc/${path}`, {

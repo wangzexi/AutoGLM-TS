@@ -1,7 +1,7 @@
 import { CheckCircle, SquareFunction } from "lucide-react";
 import { useEffect, useRef } from "react";
-import type { Message } from "../contexts/AppContext";
-import { useAppContext } from "../contexts/AppContext";
+import type { Message } from "../AppContext";
+import { useAppContext } from "../AppContext";
 
 function ActionCard({ action }: { action: Record<string, unknown> }) {
   const actionName = String(action.action);

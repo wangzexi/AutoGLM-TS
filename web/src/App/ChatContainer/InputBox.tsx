@@ -1,6 +1,6 @@
 import { Square } from "lucide-react";
 import { forwardRef, useImperativeHandle, useRef, useState } from "react";
-import { useAppContext } from "../contexts/AppContext";
+import { useAppContext } from "../AppContext";
 
 const HISTORY_KEY = "autoglm-input-history";
 const MAX_HISTORY = 50;

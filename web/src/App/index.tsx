@@ -1,14 +1,14 @@
 import { X } from "lucide-react";
 import { useEffect, useState } from "react";
-import { ChatContainer } from "./components/ChatContainer";
-import { DeviceSelector } from "./components/DeviceSelector";
 import type {
   AppContextType,
   Device,
   Message,
   SessionMessage,
-} from "./contexts/AppContext";
-import { AppContext } from "./contexts/AppContext";
+} from "./AppContext";
+import { AppContext } from "./AppContext";
+import { ChatContainer } from "./ChatContainer";
+import { DeviceSelector } from "./DeviceSelector";
 
 // Session API
 async function rpc(path: string, json: Record<string, unknown> = {}) {

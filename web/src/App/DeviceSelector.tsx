@@ -1,6 +1,6 @@
 import { useQuery } from "@tanstack/react-query";
-import type { Device } from "../contexts/AppContext";
-import { useAppContext } from "../contexts/AppContext";
+import type { Device } from "./AppContext";
+import { useAppContext } from "./AppContext";
 
 async function fetchDevices(): Promise<Device[]> {
   const res = await fetch("/rpc/device/list", {

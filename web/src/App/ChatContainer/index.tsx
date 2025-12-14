@@ -1,6 +1,6 @@
 import { useRef } from "react";
-import type { Message } from "../contexts/AppContext";
-import { useAppContext } from "../contexts/AppContext";
+import type { Message } from "../AppContext";
+import { useAppContext } from "../AppContext";
 import { InputBox, type InputBoxRef } from "./InputBox";
 import { MessageList } from "./MessageList";
 import { PhonePreview } from "./PhonePreview";
