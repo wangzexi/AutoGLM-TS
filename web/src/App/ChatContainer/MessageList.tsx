@@ -30,7 +30,7 @@ export function MessageList({ messages }: MessageListProps) {
 
   useEffect(() => {
     messagesEndRef.current?.scrollIntoView({ behavior: "smooth" });
-  }, []);
+  }, [messages]);
 
   return (
     <div className="flex-1 overflow-y-auto px-4 pt-4 pb-32 space-y-6">
