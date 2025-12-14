@@ -37,9 +37,14 @@ const allActions = [
 ] as const satisfies ActionDef<z.ZodObject<z.ZodRawShape>>[];
 
 // 动作处理器映射（action name -> handler）
-const handlers = new Map<string, (params: any, ctx: ActionContext) => Promise<ActionResult>>();
+const handlers = new Map<
+  string,
+  // biome-ignore lint/suspicious/noExplicitAny: 动态动作处理器需要通用类型
+  (params: any, ctx: ActionContext) => Promise<ActionResult>
+>();
 for (const action of allActions) {
   // 从 schema 中提取 action literal 值 (zod v4)
+  // biome-ignore lint/suspicious/noExplicitAny: 与 zod 内部 API 交互
   const actionLiteral = action.schema.shape.action as any;
   const actionName =
     actionLiteral.value ?? actionLiteral._zod?.def?.values?.[0];
@@ -78,7 +83,10 @@ const FinishSchema = z.object({
   action: z.literal("finish"),
   message: z.string(),
 });
-const allSchemas = [...allActions.map((a) => a.schema as z.ZodTypeAny), FinishSchema];
+const allSchemas = [
+  ...allActions.map((a) => a.schema as z.ZodTypeAny),
+  FinishSchema,
+];
 
 export const ActionSchema = z.union(allSchemas);
 export type Action = z.infer<typeof ActionSchema>;

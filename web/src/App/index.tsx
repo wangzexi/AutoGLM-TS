@@ -45,6 +45,7 @@ export default function App() {
         setMessages(restored);
         // 恢复设备（从设备列表获取完整信息）
         const devices = await client.device.list();
+        // biome-ignore lint/suspicious/noExplicitAny: RPC 客户端返回的类型
         const device = devices.find((d: any) => d.deviceId === data.deviceId);
         setSelectedDevice(device || { deviceId: data.deviceId });
       }
