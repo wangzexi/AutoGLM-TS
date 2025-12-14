@@ -14,8 +14,9 @@ export const tap: ActionDef<typeof TapSchema> = {
 		"Tap是点击操作，点击屏幕上的特定点。可用此操作点击按钮、选择项目、从主屏幕打开应用程序，或与任何可点击的用户界面元素进行交互。坐标系统从左上角 (0,0) 开始到右下角（999,999)结束。此操作完成后，您将自动收到结果状态的截图。",
 	schema: TapSchema,
 	handler: async (params, ctx) => {
-		if (params.message && !ctx.onConfirm(params.message)) {
-			return { success: false, finished: true, message: "用户取消敏感操作" };
+		// 敏感操作：任务结束，提示用户确认
+		if (params.message) {
+			return { success: true, finished: true, message: `⚠️ 敏感操作: ${params.message}` };
 		}
 		const [x, y] = toAbsolute(params.element, ctx.screenWidth, ctx.screenHeight);
 		await adb.tap(x, y, ctx.deviceId);

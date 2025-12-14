@@ -11,9 +11,9 @@ export const takeOver: ActionDef<typeof TakeOverSchema> = {
 	name: "Take_over",
 	description: "Take_over是接管操作，表示在登录和验证阶段需要用户协助。",
 	schema: TakeOverSchema,
-	handler: async (params, ctx) => {
-		ctx.onTakeover(params.message);
-		return { success: true };
+	handler: async (params, _ctx) => {
+		// 接管时任务结束，前端显示接管提示
+		return { success: true, finished: true, message: params.message };
 	},
 };
 

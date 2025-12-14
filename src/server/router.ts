@@ -32,7 +32,7 @@ type TaskData = {
 // 任务存储（内存）
 const tasks = new Map<string, TaskData>();
 
-// 生成任务 ID
+// 生成 ID
 const genId = () => Math.random().toString(36).slice(2, 10);
 
 // 设备相关
@@ -125,7 +125,6 @@ export const startTask = os
 			agent.reset();
 			let stepIndex = 0;
 			let result: StepResult;
-			let isFirst = true;
 
 			do {
 				if (abortController.signal.aborted) {
@@ -137,9 +136,11 @@ export const startTask = os
 				// 获取截图
 				const screenshot = await adb.getScreenshot(input.deviceId);
 
-				// 执行一步
-				result = await agent.step(isFirst ? input.task : undefined);
-				isFirst = false;
+				// 先发送截图，让前端显示"思考中"
+				yield { type: "thinking" as const, index: stepIndex, screenshot: screenshot.base64 };
+
+				// 执行一步（首次传 task，后续不传）
+				result = await agent.step(stepIndex === 0 ? input.task : undefined);
 
 				const step: z.infer<typeof StepSchema> = {
 					index: stepIndex++,

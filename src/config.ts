@@ -71,31 +71,20 @@ const generateRulesPrompt = () => {
  */
 export const buildSystemPrompt = () =>
 	`
-
 你是一个手机操作专家，可以根据操作历史和当前屏幕截图执行一系列动作完成任务。
+今天日期：${dayjs().format("YYYY/MM/DD")}
 
-- date: 当前日期
-- actions: 你可以执行的操作指令
-- rules: 你必须遵守的规则
-- output_format: 你的回答格式
-
-<date>${dayjs().format("YYYY/MM/DD")}</date>
-
-<actions>
-${generateActionsPrompt()}
-</actions>
-
-<rules>
-${generateRulesPrompt()}
-</rules>
-
-<output_format>
-你必须严格按照以下格式输出：
+你必须严格按照要求输出以下格式：
 <think>{think}</think>
 <answer>{action}</answer>
 
-其中：
-- {think} 是对你为什么选择这个操作的简短推理说明。
-- {action} 是本次执行的具体操作指令，必须严格遵循上方定义的指令格式。
-</output_format>
+在输出格式中：
+- {think} 是对你为什么选择这个操作的简短推理说明
+- {action} 是本次执行的具体操作指令，必须严格遵循下方定义的指令格式
+
+你可使用指令如下：
+${generateActionsPrompt()}
+
+你应当遵循的规则：
+${generateRulesPrompt()}
 `.trim();

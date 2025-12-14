@@ -26,64 +26,64 @@ type AgentConfig = {
 	model?: string;
 	deviceId?: string;
 	maxSteps?: number;
-	onConfirm?: (msg: string) => boolean;
-	onTakeover?: (msg: string) => void;
 };
 
-// 简单的 OpenAI 兼容 client（用 fetch 实现）
-const createClient = (baseUrl: string, apiKey: string) => {
-	const chat = async function* (model: string, messages: Message[]) {
-		const res = await fetch(`${baseUrl}/chat/completions`, {
-			method: "POST",
-			headers: {
-				"Content-Type": "application/json",
-				Authorization: `Bearer ${apiKey}`,
-			},
-			body: JSON.stringify({
-				model,
-				messages,
-				max_tokens: 3000,
-				temperature: 0,
-				top_p: 0.85,
-				frequency_penalty: 0.2,
-				stream: true,
-			}),
-		});
+// 流式调用 OpenAI 兼容 API
+async function* chat(baseUrl: string, apiKey: string, model: string, messages: Message[]) {
+	const res = await fetch(`${baseUrl}/chat/completions`, {
+		method: "POST",
+		headers: {
+			"Content-Type": "application/json",
+			Authorization: `Bearer ${apiKey}`,
+		},
+		body: JSON.stringify({
+			model,
+			messages,
+			max_tokens: 3000,
+			temperature: 0,
+			top_p: 0.85,
+			frequency_penalty: 0.2,
+			stream: true,
+		}),
+	});
 
-		if (!res.ok) throw new Error(`API 错误: ${res.status}`);
-		if (!res.body) throw new Error("无响应体");
+	if (!res.ok) throw new Error(`API 错误: ${res.status}`);
+	if (!res.body) throw new Error("无响应体");
 
-		const reader = res.body.getReader();
-		const decoder = new TextDecoder();
-		let buffer = "";
+	const reader = res.body.getReader();
+	const decoder = new TextDecoder();
+	let buffer = "";
 
-		while (true) {
-			const { done, value } = await reader.read();
-			if (done) break;
+	while (true) {
+		const { done, value } = await reader.read();
+		if (done) break;
 
-			buffer += decoder.decode(value, { stream: true });
-			const lines = buffer.split("\n");
-			buffer = lines.pop() || "";
+		buffer += decoder.decode(value, { stream: true });
+		const lines = buffer.split("\n");
+		buffer = lines.pop() || "";
 
-			for (const line of lines) {
-				if (!line.startsWith("data: ")) continue;
-				const data = line.slice(6);
-				if (data === "[DONE]") return;
+		for (const line of lines) {
+			if (!line.startsWith("data: ")) continue;
+			const data = line.slice(6);
+			if (data === "[DONE]") return;
 
-				try {
-					const json = JSON.parse(data);
-					const content = json.choices?.[0]?.delta?.content;
-					if (content) yield content;
-				} catch {}
-			}
+			try {
+				const json = JSON.parse(data);
+				const content = json.choices?.[0]?.delta?.content;
+				if (content) yield content;
+			} catch {}
 		}
-	};
+	}
+}
 
-	return { chat };
+// 解析模型响应：提取 thinking，解析并验证 action
+type ParseResult = {
+	thinking: string;
+	action?: Action;
+	error?: string;
 };
 
-// 解析模型响应：提取 thinking 和 do()/finish() action
-const parseResponse = (content: string): { thinking: string; actionStr?: string } => {
+const parseResponse = (content: string): ParseResult => {
 	const markers = ["finish(", "do("];
 
 	for (const marker of markers) {
@@ -109,9 +109,15 @@ const parseResponse = (content: string): { thinking: string; actionStr?: string 
 		const thinking = content.slice(0, idx).replace(/<\/?think>/g, "").trim();
 		const actionStr = content.slice(idx, end);
 
-		return { thinking, actionStr };
+		// 解析并验证 action
+		const parseResult = parseAction(actionStr);
+		if (parseResult.success) {
+			return { thinking, action: parseResult.data };
+		}
+		return { thinking, error: parseResult.error };
 	}
 
+	// 没有找到 action
 	return { thinking: content.replace(/<\/?think>/g, "").trim() };
 };
 
@@ -123,31 +129,25 @@ export const createAgent = (config: AgentConfig = {}) => {
 	const deviceId = config.deviceId;
 	const maxSteps = config.maxSteps || 100;
 
-	const onConfirm = config.onConfirm || ((msg) => {
-		console.log(`⚠️ 敏感操作: ${msg}`);
-		return true;
-	});
-
-	const onTakeover = config.onTakeover || ((msg) => {
-		console.log(`🖐️ 需要手动操作: ${msg}`);
-	});
-
-	const client = createClient(baseUrl, apiKey);
-
 	// 状态
 	let context: Message[] = [];
+	let currentTask = "";
 	let stepCount = 0;
 
 	const reset = () => {
 		context = [];
+		currentTask = "";
 		stepCount = 0;
 	};
 
 	const step = async (task?: string): Promise<StepResult> => {
 		stepCount++;
-		const isFirst = context.length === 0;
 
-		if (isFirst && !task) throw new Error("首次调用需要 task");
+		// 首次调用设置任务
+		if (task) currentTask = task;
+		if (!currentTask) throw new Error("需要设置 task");
+
+		const isFirst = context.length === 0;
 
 		// 获取屏幕
 		const screenshot = await adb.getScreenshot(deviceId);
@@ -158,8 +158,8 @@ export const createAgent = (config: AgentConfig = {}) => {
 			context.push({ role: "system", content: buildSystemPrompt() });
 		}
 
-		const screenInfo = JSON.stringify({ current_app: currentApp });
-		const text = isFirst ? `${task}\n\n** Screen Info **\n${screenInfo}` : `** Screen Info **\n${screenInfo}`;
+		const screenInfo = `当前应用: ${currentApp}`;
+		const text = isFirst ? `${currentTask}\n\n${screenInfo}` : screenInfo;
 
 		context.push({
 			role: "user",
@@ -175,7 +175,7 @@ export const createAgent = (config: AgentConfig = {}) => {
 			let inAction = false;
 			let buffer = "";
 
-			for await (const chunk of client.chat(model, context)) {
+			for await (const chunk of chat(baseUrl, apiKey, model, context)) {
 				rawContent += chunk;
 
 				if (inAction) continue;
@@ -218,31 +218,25 @@ export const createAgent = (config: AgentConfig = {}) => {
 		}
 
 		// 解析响应
-		const { thinking, actionStr } = parseResponse(rawContent);
+		const { thinking, action, error } = parseResponse(rawContent);
 
-		// zod 验证
-		if (!actionStr) {
-			// 没有找到 action，当作 finish 处理
-			context.push({ role: "assistant", content: rawContent });
-			return { success: true, finished: true, thinking, message: thinking };
-		}
+		// 记录 assistant 响应
+		context.push({ role: "assistant", content: rawContent });
 
-		const parseResult = parseAction(actionStr);
-
-		if (!parseResult.success) {
-			// 验证失败，反馈给模型
-			console.error(`\n❌ Action 解析失败: ${parseResult.error}`);
-			context.push({ role: "assistant", content: rawContent });
-			context.push({ role: "user", content: `Action 格式错误: ${parseResult.error}\n请修正后重新输出。` });
-			// 递归重试（不增加 stepCount）
+		// 解析失败，反馈给模型重试
+		if (error) {
+			console.error(`\n❌ Action 解析失败: ${error}`);
+			context.push({ role: "user", content: `Action 格式错误: ${error}\n请修正后重新输出。` });
 			stepCount--;
 			return step();
 		}
 
-		const action = parseResult.data as Action;
+		// 没有 action，当作完成
+		if (!action) {
+			return { success: true, finished: true, thinking, message: thinking };
+		}
 
-		// 记录 assistant 响应（移除历史图片）
-		context.push({ role: "assistant", content: rawContent });
+		// 移除历史图片（节省 token）
 		const prevUserMsg = context.at(-2);
 		if (prevUserMsg && Array.isArray(prevUserMsg.content)) {
 			prevUserMsg.content = prevUserMsg.content.filter((c) => c.type === "text");
@@ -253,8 +247,6 @@ export const createAgent = (config: AgentConfig = {}) => {
 			deviceId,
 			screenWidth: screenshot.width,
 			screenHeight: screenshot.height,
-			onConfirm,
-			onTakeover,
 		};
 
 		// 转换为 executeAction 需要的格式
@@ -284,16 +276,3 @@ export const createAgent = (config: AgentConfig = {}) => {
 
 	return { run, step, reset };
 };
-
-// 兼容旧 API
-export class PhoneAgent {
-	private agent: ReturnType<typeof createAgent>;
-
-	constructor(config: AgentConfig = {}) {
-		this.agent = createAgent(config);
-	}
-
-	run = (task: string) => this.agent.run(task);
-	step = (task?: string) => this.agent.step(task);
-	reset = () => this.agent.reset();
-}

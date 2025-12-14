@@ -44,9 +44,6 @@ for (const action of allActions) {
 		handlers.set(actionName, action.handler);
 	}
 }
-// 兼容旧格式
-handlers.set("Double Tap", doubleTap.handler);
-handlers.set("Long Press", longPress.handler);
 
 /**
  * 生成动作提示词（do() 格式）
@@ -61,12 +58,12 @@ export const generateActionsPrompt = (): string => {
 		seen.add(usage);
 
 		lines.push(`- ${usage}`);
-		lines.push(`    ${action.description}`);
+		lines.push(`  ${action.description}`);
 	}
 
 	// finish 是特殊的
 	lines.push('- finish(message="xxx")');
-	lines.push(`    finish是结束任务的操作，表示准确完整完成任务，message是终止信息。`);
+	lines.push(`  finish是结束任务的操作，表示准确完整完成任务，message是终止信息。`);
 
 	return lines.join("\n");
 };

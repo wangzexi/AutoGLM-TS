@@ -9,8 +9,6 @@ export type ActionContext = {
 	deviceId?: string;
 	screenWidth: number;
 	screenHeight: number;
-	onConfirm: (message: string) => boolean;
-	onTakeover: (message: string) => void;
 };
 
 // 动作执行结果
