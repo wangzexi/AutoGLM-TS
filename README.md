@@ -55,10 +55,9 @@ cd autoglm-ts
 npm install
 ```
 
-配置环境变量（参考 .env.example 创建 .env 文件）：
+配置环境变量：
 ```bash
-cp .env.example .env
-# 编辑 .env，在 https://open.bigmodel.cn 获取 API 密钥并填入
+cp .env.example .env # 创建 .env，填入 API 密钥（https://open.bigmodel.cn）
 ```
 
 运行项目：
