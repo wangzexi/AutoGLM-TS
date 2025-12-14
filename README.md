@@ -2,11 +2,11 @@
 
 ![Demo](demo/demo.webp)
 
-用 TypeScript 实现的 [Open-AutoGLM](https://github.com/openinterpreter/open-autoglm) Android Agent。
+TypeScript 实现的 [Open-AutoGLM](https://github.com/openinterpreter/open-autoglm) Android Agent。
 
 ```bash
 npm start # Web 模式
-npm start -- "打开美团帮我点一杯瑞幸咖啡" # CLI 模式
+npm start -- "打开美团的小象超市搜索纯牛奶" # CLI 模式
 ```
 
 ## 快速开始
@@ -55,7 +55,7 @@ cd autoglm-ts
 npm install
 ```
 
-配置环境变量：
+配置环境变量（参考 .env.example 创建 .env 文件）：
 ```bash
 cp .env.example .env
 # 编辑 .env，在 https://open.bigmodel.cn 获取 API 密钥并填入
@@ -63,15 +63,11 @@ cp .env.example .env
 
 运行项目：
 ```bash
-# Web UI（推荐）
-npm start
-# 打开浏览器访问 http://localhost:3000
+npm start # Web UI
 
-# 或 CLI 模式
-npm start -- "打开微信"
+npm start -- "打开美团的小象超市搜索纯牛奶" # 或 CLI 模式
 
-# 或开发模式（代码热重载）
-npm run dev
+npm run dev # 或开发模式（代码热重载）
 ```
 
 ## 环境变量详解
