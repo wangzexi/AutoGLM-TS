@@ -7,6 +7,10 @@ npm start # Web 模式
 npm start -- "打开美团帮我点一杯瑞幸咖啡" # CLI 模式
 ```
 
+## Demo
+
+<video src="demo/demo.mp4" width="320" controls></video>
+
 ## 快速开始
 
 ### 步骤 1: 准备 Android 设备
