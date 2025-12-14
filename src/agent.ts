@@ -92,6 +92,9 @@ type ParseResult = {
 	error?: string;
 };
 
+// 移除所有 XML 风格标签（如 <think>, </answer> 等）
+const stripTags = (text: string) => text.replace(/<\/?[a-z_]+>/gi, "").trim();
+
 const parseResponse = (content: string): ParseResult => {
 	const markers = ["finish(", "do("];
 
@@ -115,7 +118,7 @@ const parseResponse = (content: string): ParseResult => {
 
 		if (end === -1) continue;
 
-		const thinking = content.slice(0, idx).replace(/<\/?think>/g, "").trim();
+		const thinking = stripTags(content.slice(0, idx));
 		const actionStr = content.slice(idx, end);
 
 		// 解析并验证 action
@@ -127,7 +130,7 @@ const parseResponse = (content: string): ParseResult => {
 	}
 
 	// 没有找到 action
-	return { thinking: content.replace(/<\/?think>/g, "").trim() };
+	return { thinking: stripTags(content) };
 };
 
 // 创建 Agent（闭包工厂）
@@ -206,7 +209,7 @@ export const createAgent = (config: AgentConfig = {}) => {
 					const idx = buffer.indexOf(marker);
 					if (idx !== -1) {
 						// yield thinking
-						const thinking = buffer.slice(0, idx).replace(/<\/?think>/g, "").trim();
+						const thinking = buffer.slice(0, idx).replace(/<\/?(think|answer)>/g, "").trim();
 						if (!thinkingYielded) {
 							yield { type: "thinking", thinking };
 							thinkingYielded = true;
@@ -244,8 +247,8 @@ export const createAgent = (config: AgentConfig = {}) => {
 		// 解析响应
 		const { thinking, action, error } = parseResponse(rawContent);
 
-		// 如果 thinking 还没 yield（没有 action 的情况）
-		if (!thinkingYielded && thinking) {
+		// 确保 yield 完整的 thinking（流式时可能是空或不完整的）
+		if (thinking) {
 			yield { type: "thinking", thinking };
 		}
 

@@ -1,5 +1,5 @@
 import { useRef, useEffect } from "react";
-import { SquareFunction } from "lucide-react";
+import { SquareFunction, CheckCircle } from "lucide-react";
 import type { Message } from "../contexts/AppContext";
 import { useAppContext } from "../contexts/AppContext";
 
@@ -62,13 +62,19 @@ export function MessageList({ messages }: MessageListProps) {
 							{msg.action && (
 								<div className="text-sm">
 									{msg.action.action === "finish" ? (
-										<p className="text-green-600 whitespace-pre-wrap">
-											{String(msg.action.message || "完成").replace(/\\n/g, "\n")}
-										</p>
+										<div className="flex gap-2 text-green-600">
+											<CheckCircle size={14} className="flex-shrink-0 mt-0.5" />
+											<p className="whitespace-pre-wrap">
+												{String(msg.action.message || "完成").replace(/\\n/g, "\n")}
+											</p>
+										</div>
 									) : msg.action.action === "Take_over" ? (
-										<p className="text-amber-600 whitespace-pre-wrap">
-											需要接管: {String(msg.action.message || "请手动操作").replace(/\\n/g, "\n")}
-										</p>
+										<div className="flex gap-2 text-amber-600">
+											<span className="flex-shrink-0">✋</span>
+											<p className="whitespace-pre-wrap">
+												需要接管: {String(msg.action.message || "请手动操作").replace(/\\n/g, "\n")}
+											</p>
+										</div>
 									) : msg.message?.startsWith("⚠️") ? (
 										<p className="text-red-600 whitespace-pre-wrap">
 											{msg.message.replace(/\\n/g, "\n")}

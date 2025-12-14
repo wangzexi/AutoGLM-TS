@@ -33,36 +33,36 @@ export function DeviceSelector() {
 					<>
 						<p className="text-zinc-500 mb-8">选择要操作的设备</p>
 						<div className="flex flex-wrap justify-center gap-4">
-						{devices.map((device) => (
-							<button
-								key={device.deviceId}
-								onClick={() => setSelectedDevice(device)}
-								className="bg-zinc-100 rounded-2xl p-3 hover:bg-zinc-200 transition text-left"
-							>
-								{device.screenshot ? (
-									<div className="h-[60vh] flex items-center justify-center">
-										<img
-											src={`data:image/png;base64,${device.screenshot}`}
-											alt={device.model || device.deviceId}
-											className="max-h-full max-w-full object-contain rounded-xl"
-										/>
+							{devices.map((device) => (
+								<button
+									key={device.deviceId}
+									onClick={() => setSelectedDevice(device)}
+									className="bg-zinc-100 rounded-2xl p-3 hover:bg-zinc-200 transition text-left"
+								>
+									{device.screenshot ? (
+										<div className="h-[60vh] flex items-center justify-center">
+											<img
+												src={`data:image/png;base64,${device.screenshot}`}
+												alt={device.model || device.deviceId}
+												className="max-h-full max-w-full object-contain rounded-xl"
+											/>
+										</div>
+									) : (
+										<div className="h-[60vh] bg-zinc-300 rounded-xl flex items-center justify-center text-zinc-500">
+											无法获取截图
+										</div>
+									)}
+									<div className="mt-2 px-1 text-center">
+										<div className="font-medium truncate">
+											{device.marketName || device.model || device.deviceId}
+										</div>
+										<div className="text-xs text-zinc-500">
+											{device.androidVersion ? `Android ${device.androidVersion}` : device.brand}
+										</div>
 									</div>
-								) : (
-									<div className="h-[60vh] bg-zinc-300 rounded-xl flex items-center justify-center text-zinc-500">
-										无法获取截图
-									</div>
-								)}
-								<div className="mt-2 px-1 text-center">
-									<div className="font-medium truncate">
-										{device.marketName || device.model || device.deviceId}
-									</div>
-									<div className="text-xs text-zinc-500">
-										{device.androidVersion ? `Android ${device.androidVersion}` : device.brand}
-									</div>
-								</div>
-							</button>
-						))}
-					</div>
+								</button>
+							))}
+						</div>
 					</>
 				)}
 			</div>
