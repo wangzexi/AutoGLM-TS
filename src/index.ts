@@ -15,9 +15,14 @@
 
 import * as readline from "readline";
 import { execSync } from "child_process";
-import { ADBConnection, listDevices } from "./phone-agent/adb/connection.ts";
+import {
+  listDevices,
+  connect,
+  disconnect,
+  enableTcpip,
+} from "./phone-agent/adb.ts";
 import { PhoneAgent, type AgentConfig } from "./phone-agent/agent.ts";
-import { type ModelConfig } from "./phone-agent/model/client.ts";
+import { type ModelConfig } from "./phone-agent/model.ts";
 import { listSupportedApps } from "./phone-agent/config/apps.ts";
 import OpenAI from "openai";
 
@@ -250,11 +255,9 @@ function parseArgs(): Args {
   return args;
 }
 
-function handleDeviceCommands(args: Args): boolean {
-  const conn = new ADBConnection();
-
+async function handleDeviceCommands(args: Args): Promise<boolean> {
   if (args.listDevices) {
-    const devices = listDevices();
+    const devices = await listDevices();
     if (!devices.length) {
       console.log("No devices connected.");
     } else {
@@ -262,10 +265,9 @@ function handleDeviceCommands(args: Args): boolean {
       console.log("-".repeat(60));
       for (const device of devices) {
         const statusIcon = device.status === "device" ? "✓" : "✗";
-        const connType = device.connectionType;
         const modelInfo = device.model ? ` (${device.model})` : "";
         console.log(
-          `  ${statusIcon} ${device.deviceId.padEnd(30)} [${connType}]${modelInfo}`
+          `  ${statusIcon} ${device.deviceId.padEnd(30)} [${device.status}]${modelInfo}`
         );
       }
     }
@@ -274,7 +276,7 @@ function handleDeviceCommands(args: Args): boolean {
 
   if (args.connect) {
     console.log(`Connecting to ${args.connect}...`);
-    const [success, message] = conn.connect(args.connect);
+    const [success, message] = await connect(args.connect);
     console.log(`${success ? "✓" : "✗"} ${message}`);
     if (success) {
       args.deviceId = args.connect;
@@ -288,7 +290,7 @@ function handleDeviceCommands(args: Args): boolean {
     } else {
       console.log(`Disconnecting from ${args.disconnect}...`);
     }
-    const [success, message] = conn.disconnect(args.disconnect === "all" ? undefined : args.disconnect);
+    const [success, message] = await disconnect(args.disconnect === "all" ? undefined : args.disconnect);
     console.log(`${success ? "✓" : "✗"} ${message}`);
     return true;
   }
@@ -296,19 +298,13 @@ function handleDeviceCommands(args: Args): boolean {
   if (args.enableTcpip !== undefined) {
     const port = args.enableTcpip;
     console.log(`Enabling TCP/IP debugging on port ${port}...`);
-    const [success, message] = conn.enableTcpip(port, args.deviceId);
+    const [success, message] = await enableTcpip(port, args.deviceId);
     console.log(`${success ? "✓" : "✗"} ${message}`);
 
     if (success) {
-      const ip = conn.getDeviceIp(args.deviceId);
-      if (ip) {
-        console.log(`\nYou can now connect remotely using:`);
-        console.log(`  node src/index.ts --connect ${ip}:${port}`);
-        console.log(`\nOr via ADB directly:`);
-        console.log(`  adb connect ${ip}:${port}`);
-      } else {
-        console.log("\nCould not determine device IP. Check device WiFi settings.");
-      }
+      console.log(`\nYou can now connect remotely using:`);
+      console.log(`  adb connect <device-ip>:${port}`);
+      console.log(`\nFind your device IP in Settings > About Phone > Status`);
     }
     return true;
   }
@@ -327,7 +323,7 @@ async function main(): Promise<void> {
     return;
   }
 
-  if (handleDeviceCommands(args)) {
+  if (await handleDeviceCommands(args)) {
     return;
   }
 
@@ -356,7 +352,7 @@ async function main(): Promise<void> {
   console.log(`Base URL: ${modelConfig.baseUrl}`);
   console.log(`Max Steps: ${agentConfig.maxSteps}`);
 
-  const devices = listDevices();
+  const devices = await listDevices();
   if (agentConfig.deviceId) {
     console.log(`Device: ${agentConfig.deviceId}`);
   } else if (devices.length > 0) {

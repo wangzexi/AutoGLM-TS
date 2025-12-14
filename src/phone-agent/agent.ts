@@ -7,12 +7,19 @@ import {
   parseAction,
   doAction,
   finish,
-} from "./actions/handler.ts";
-import type { ActionResult } from "./actions/handler.ts";
-import { getCurrentApp, getScreenshot } from "./adb/index.ts";
-import { getMessage, getSystemPrompt } from "./config/index.ts";
-import { ModelClient, MessageBuilder } from "./model/client.ts";
-import type { ModelConfig, ModelResponse } from "./model/client.ts";
+} from "./actions.ts";
+import type { ActionResult } from "./actions.ts";
+import { getCurrentApp, getScreenshot } from "./adb.ts";
+import { SYSTEM_PROMPT } from "./config/index.ts";
+import {
+	ModelClient,
+	createSystemMessage,
+	createUserMessage,
+	removeImagesFromMessage,
+	buildScreenInfo,
+	type ModelConfig,
+	type ModelResponse,
+} from "./model.ts";
 
 export interface AgentConfig {
   maxSteps?: number;
@@ -51,13 +58,12 @@ export class PhoneAgent {
       temperature: modelConfig?.temperature ?? 0,
       topP: modelConfig?.topP ?? 0.85,
       frequencyPenalty: modelConfig?.frequencyPenalty ?? 0.2,
-      extraBody: modelConfig?.extraBody ?? {},
     };
 
     this.agentConfig = {
       maxSteps: agentConfig?.maxSteps ?? 100,
-      deviceId: agentConfig?.deviceId,
-      systemPrompt: agentConfig?.systemPrompt ?? getSystemPrompt(),
+      deviceId: agentConfig?.deviceId ?? undefined,
+      systemPrompt: agentConfig?.systemPrompt ?? SYSTEM_PROMPT,
       verbose: agentConfig?.verbose ?? true,
     };
 
@@ -116,29 +122,28 @@ export class PhoneAgent {
 
     if (isFirst) {
       this.context = [];
-      this.context.push(MessageBuilder.createSystemMessage(this.agentConfig.systemPrompt));
+      this.context.push(createSystemMessage(this.agentConfig.systemPrompt));
 
-      const screenInfo = MessageBuilder.buildScreenInfo(currentApp);
+      const screenInfo = buildScreenInfo(currentApp);
       const textContent = `${userPrompt}\n\n${screenInfo}`;
 
       this.context.push(
-        MessageBuilder.createUserMessage(textContent, screenshot.base64Data)
+        createUserMessage(textContent, screenshot.base64Data)
       );
     } else {
-      const screenInfo = MessageBuilder.buildScreenInfo(currentApp);
+      const screenInfo = buildScreenInfo(currentApp);
       const textContent = `** Screen Info **\n\n${screenInfo}`;
 
       this.context.push(
-        MessageBuilder.createUserMessage(textContent, screenshot.base64Data)
+        createUserMessage(textContent, screenshot.base64Data)
       );
     }
 
     let response: ModelResponse;
 
     try {
-      const msgs = getMessage("thinking");
       console.log("\n" + "=" + "=".repeat(48));
-      console.log(`💭 ${msgs}:`);
+      console.log("💭 思考中:");
       console.log("-" + "-".repeat(48));
 
       response = await this.modelClient.request(this.context as any);
@@ -166,15 +171,14 @@ export class PhoneAgent {
     }
 
     if (this.agentConfig.verbose) {
-      const msgs = getMessage("action");
       console.log("-" + "-".repeat(48));
-      console.log(`🎯 ${msgs}:`);
+      console.log("🎯 动作:");
       console.log(JSON.stringify(action, null, 2));
     }
 
     let result: ActionResult;
     try {
-      result = this.actionHandler.execute(
+      result = await this.actionHandler.execute(
         action,
         screenshot.width,
         screenshot.height
@@ -190,17 +194,16 @@ export class PhoneAgent {
     }
 
     // Remove image from context to save space
-    this.context[this.context.length - 1] = MessageBuilder.removeImagesFromMessage(
+    this.context[this.context.length - 1] = removeImagesFromMessage(
       this.context[this.context.length - 1]
     );
 
     const finished = action["_metadata"] === "finish" || result.shouldFinish;
 
     if (finished && this.agentConfig.verbose) {
-      const msgs = getMessage("task_completed");
       console.log("\n" + "🎉 " + "=".repeat(48));
       console.log(
-        `✅ ${msgs}: ${result.message || action["message"] || getMessage("done")}`
+        `✅ 任务完成: ${result.message || action["message"] || "完成"}`
       );
       console.log("=" + "=".repeat(48) + "\n");
     }
