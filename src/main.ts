@@ -2,52 +2,55 @@
  * AutoGLM-TS 入口
  */
 
+import { Command } from "commander";
+import { z } from "zod";
 import { createAgent } from "./agent.ts";
-import { listDevices } from "./actions/adb.ts";
 import { createWebServer } from "./server/index.ts";
 
-// CLI 参数解析
-const parseArgs = () => {
-	const argv = process.argv.slice(2);
-	const args: Record<string, unknown> = {};
+// 参数 schema
+const argsSchema = z.object({
+	baseUrl: z.string().optional(),
+	model: z.string().optional(),
+	apiKey: z.string().optional(),
+	maxSteps: z.number().optional(),
+	deviceId: z.string().optional(),
+	task: z.string().optional(),
+	port: z.number().default(3000),
+});
 
-	for (let i = 0; i < argv.length; i++) {
-		const [key, val] = [argv[i], argv[i + 1]];
-		switch (key) {
-			case "--base-url": args.baseUrl = val; i++; break;
-			case "--model": args.model = val; i++; break;
-			case "--apikey": args.apiKey = val; i++; break;
-			case "--max-steps": args.maxSteps = parseInt(val); i++; break;
-			case "-d": case "--device": args.deviceId = val; i++; break;
-			case "--list-devices": args.listDevices = true; break;
-			case "--port": args.port = parseInt(val); i++; break;
-			default: if (!key.startsWith("-")) args.task = key;
-		}
-	}
+type Args = z.infer<typeof argsSchema>;
 
-	return {
-		baseUrl: args.baseUrl as string | undefined,
-		model: args.model as string | undefined,
-		apiKey: args.apiKey as string | undefined,
-		maxSteps: args.maxSteps as number | undefined,
-		deviceId: args.deviceId as string | undefined,
-		task: args.task as string | undefined,
-		listDevices: args.listDevices as boolean | undefined,
-		port: (args.port as number) || 3000,
-	};
+// 参数解析
+const parseArgs = (): Args => {
+	const program = new Command();
+
+	program
+		.option("--base-url <url>", "模型 API 地址")
+		.option("--model <name>", "模型名称")
+		.option("--apikey <key>", "API 密钥")
+		.option("--max-steps <n>", "最大步数", parseInt)
+		.option("-d, --device <id>", "设备 ID")
+		.option("--port <n>", "服务器端口", parseInt)
+		.argument("[task]", "执行的任务")
+		.parse();
+
+	const opts = program.opts();
+	const task = program.args[0];
+
+	return argsSchema.parse({
+		baseUrl: opts.baseUrl,
+		model: opts.model,
+		apiKey: opts.apikey,
+		maxSteps: opts.maxSteps,
+		deviceId: opts.device,
+		task,
+		port: opts.port,
+	});
 };
 
 // 主入口
 const main = async () => {
 	const args = parseArgs();
-
-	// 列出设备
-	if (args.listDevices) {
-		const devices = await listDevices();
-		console.log("连接的设备:");
-		devices.forEach((d) => console.log(`  - ${d.deviceId} (${d.status})`));
-		return;
-	}
 
 	// 直接执行任务（无 UI）
 	if (args.task) {

@@ -15,6 +15,12 @@ export type StepResult = {
 	message?: string;
 };
 
+// 统一用 yield，不用 return，这样 for await...of 能正确处理所有事件
+export type StepEvent =
+	| { type: "thinking"; thinking: string }
+	| { type: "action"; action: Record<string, unknown> }
+	| { type: "done"; result: StepResult };
+
 type Message = {
 	role: "system" | "user" | "assistant";
 	content: string | Array<{ type: string; text?: string; image_url?: { url: string } }>;
@@ -26,10 +32,12 @@ type AgentConfig = {
 	model?: string;
 	deviceId?: string;
 	maxSteps?: number;
+	signal?: AbortSignal; // 用于终止执行
+	historyMessages?: Array<{ role: "user" | "assistant"; content: string }>; // 历史上下文
 };
 
 // 流式调用 OpenAI 兼容 API
-async function* chat(baseUrl: string, apiKey: string, model: string, messages: Message[]) {
+async function* chat(baseUrl: string, apiKey: string, model: string, messages: Message[], signal?: AbortSignal) {
 	const res = await fetch(`${baseUrl}/chat/completions`, {
 		method: "POST",
 		headers: {
@@ -45,6 +53,7 @@ async function* chat(baseUrl: string, apiKey: string, model: string, messages: M
 			frequency_penalty: 0.2,
 			stream: true,
 		}),
+		signal,
 	});
 
 	if (!res.ok) throw new Error(`API 错误: ${res.status}`);
@@ -128,6 +137,8 @@ export const createAgent = (config: AgentConfig = {}) => {
 	const model = config.model || process.env.PHONE_AGENT_MODEL || "autoglm-phone";
 	const deviceId = config.deviceId;
 	const maxSteps = config.maxSteps || 100;
+	const signal = config.signal;
+	const historyMessages = config.historyMessages || [];
 
 	// 状态
 	let context: Message[] = [];
@@ -140,7 +151,7 @@ export const createAgent = (config: AgentConfig = {}) => {
 		stepCount = 0;
 	};
 
-	const step = async (task?: string): Promise<StepResult> => {
+	const step = async function* (task?: string): AsyncGenerator<StepEvent, void> {
 		stepCount++;
 
 		// 首次调用设置任务
@@ -156,6 +167,10 @@ export const createAgent = (config: AgentConfig = {}) => {
 		// 构建消息
 		if (isFirst) {
 			context.push({ role: "system", content: buildSystemPrompt() });
+			// 添加历史上下文（来自 session）
+			for (const msg of historyMessages) {
+				context.push({ role: msg.role, content: msg.content });
+			}
 		}
 
 		const screenInfo = `当前应用: ${currentApp}`;
@@ -171,11 +186,14 @@ export const createAgent = (config: AgentConfig = {}) => {
 
 		// 调用模型
 		let rawContent = "";
+		let thinkingYielded = false;
+		let actionYielded = false;
+
 		try {
 			let inAction = false;
 			let buffer = "";
 
-			for await (const chunk of chat(baseUrl, apiKey, model, context)) {
+			for await (const chunk of chat(baseUrl, apiKey, model, context, signal)) {
 				rawContent += chunk;
 
 				if (inAction) continue;
@@ -187,8 +205,13 @@ export const createAgent = (config: AgentConfig = {}) => {
 				for (const marker of markers) {
 					const idx = buffer.indexOf(marker);
 					if (idx !== -1) {
-						// 输出 thinking 部分
-						process.stdout.write(buffer.slice(0, idx) + "\n");
+						// yield thinking
+						const thinking = buffer.slice(0, idx).replace(/<\/?think>/g, "").trim();
+						if (!thinkingYielded) {
+							yield { type: "thinking", thinking };
+							thinkingYielded = true;
+						}
+						process.stdout.write(thinking + "\n");
 						inAction = true;
 						break;
 					}
@@ -214,11 +237,17 @@ export const createAgent = (config: AgentConfig = {}) => {
 				}
 			}
 		} catch (e) {
-			return { success: false, finished: true, thinking: "", message: `模型错误: ${e}` };
+			yield { type: "done", result: { success: false, finished: true, thinking: "", message: `模型错误: ${e}` } };
+			return;
 		}
 
 		// 解析响应
 		const { thinking, action, error } = parseResponse(rawContent);
+
+		// 如果 thinking 还没 yield（没有 action 的情况）
+		if (!thinkingYielded && thinking) {
+			yield { type: "thinking", thinking };
+		}
 
 		// 记录 assistant 响应
 		context.push({ role: "assistant", content: rawContent });
@@ -228,12 +257,22 @@ export const createAgent = (config: AgentConfig = {}) => {
 			console.error(`\n❌ Action 解析失败: ${error}`);
 			context.push({ role: "user", content: `Action 格式错误: ${error}\n请修正后重新输出。` });
 			stepCount--;
-			return step();
+			// 递归调用 step，转发所有事件
+			yield* step();
+			return;
 		}
 
 		// 没有 action，当作完成
 		if (!action) {
-			return { success: true, finished: true, thinking, message: thinking };
+			yield { type: "done", result: { success: true, finished: true, thinking, message: thinking } };
+			return;
+		}
+
+		// yield action（执行前）
+		const actionForExec = action as Record<string, unknown>;
+		if (!actionYielded) {
+			yield { type: "action", action: actionForExec };
+			actionYielded = true;
 		}
 
 		// 移除历史图片（节省 token）
@@ -249,29 +288,47 @@ export const createAgent = (config: AgentConfig = {}) => {
 			screenHeight: screenshot.height,
 		};
 
-		// 转换为 executeAction 需要的格式
-		const actionForExec = action as Record<string, unknown>;
-		const result = await executeAction(actionForExec, ctx);
+		const execResult = await executeAction(actionForExec, ctx);
 
 		const isFinish = actionForExec.action === "finish";
-		return {
-			success: result.success,
-			finished: isFinish || result.finished || false,
-			thinking,
-			action: actionForExec,
-			message: result.message || (isFinish ? (actionForExec.message as string) : undefined),
+		yield {
+			type: "done",
+			result: {
+				success: execResult.success,
+				finished: isFinish || execResult.finished || false,
+				thinking,
+				action: actionForExec,
+				message: execResult.message || (isFinish ? (actionForExec.message as string) : undefined),
+			},
 		};
 	};
 
 	const run = async (task: string) => {
 		reset();
-		let result = await step(task);
 
-		while (!result.finished && stepCount < maxSteps) {
-			result = await step();
+		let result: StepResult | undefined;
+
+		// 消耗 step generator，提取最终结果
+		for await (const event of step(task)) {
+			if (event.type === "done") {
+				result = event.result;
+			}
 		}
 
-		return result.message || "完成";
+		while (result && !result.finished && stepCount < maxSteps) {
+			// 检查是否被终止
+			if (signal?.aborted) {
+				return "任务已取消";
+			}
+			// 消耗后续 step
+			for await (const event of step()) {
+				if (event.type === "done") {
+					result = event.result;
+				}
+			}
+		}
+
+		return result?.message || "完成";
 	};
 
 	return { run, step, reset };

@@ -21,11 +21,8 @@ export function DeviceSelector() {
 	});
 
 	return (
-		<div className="min-h-screen bg-white text-zinc-900 p-8">
-			<div className="max-w-4xl mx-auto text-center">
-				<h1 className="text-2xl font-medium mb-2">AutoGLM</h1>
-				<p className="text-zinc-500 mb-8">选择要操作的设备</p>
-
+		<div className="min-h-screen bg-white text-zinc-900 flex items-center justify-center p-8">
+			<div className="max-w-4xl w-full text-center">
 				{devices.length === 0 ? (
 					<div className="text-center py-20 text-zinc-400">
 						<div className="text-5xl mb-4">📱</div>
@@ -33,7 +30,9 @@ export function DeviceSelector() {
 						<p className="text-sm mt-2">请连接 Android 设备并开启 USB 调试</p>
 					</div>
 				) : (
-					<div className="flex flex-wrap justify-center gap-4">
+					<>
+						<p className="text-zinc-500 mb-8">选择要操作的设备</p>
+						<div className="flex flex-wrap justify-center gap-4">
 						{devices.map((device) => (
 							<button
 								key={device.deviceId}
@@ -64,6 +63,7 @@ export function DeviceSelector() {
 							</button>
 						))}
 					</div>
+					</>
 				)}
 			</div>
 		</div>

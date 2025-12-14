@@ -11,6 +11,11 @@ export type Message =
 			message?: string;
 	  };
 
+export type SessionMessage = {
+	role: "user" | "assistant";
+	content: string;
+};
+
 export type Device = {
 	deviceId: string;
 	status: string;
@@ -23,13 +28,15 @@ export type Device = {
 
 export type AppContextType = {
 	selectedDevice: Device | null;
-	setSelectedDevice: (device: Device | null) => void;
+	setSelectedDevice: (device: Device) => void;
 	messages: Message[];
 	setMessages: (messages: Message[] | ((prev: Message[]) => Message[])) => void;
 	isRunning: boolean;
 	setIsRunning: (running: boolean) => void;
 	enlargedScreenshot: string | null;
 	setEnlargedScreenshot: (screenshot: string | null) => void;
+	model: string | null;
+	setModel: (model: string | null) => void;
 };
 
 export const AppContext = createContext<AppContextType | undefined>(undefined);

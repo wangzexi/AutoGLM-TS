@@ -1,4 +1,5 @@
-import { useState, useRef } from "react";
+import { useState, useRef, useImperativeHandle, forwardRef } from "react";
+import { Square } from "lucide-react";
 import { useAppContext } from "../contexts/AppContext";
 
 const HISTORY_KEY = "autoglm-input-history";
@@ -18,14 +19,33 @@ function saveHistory(history: string[]) {
 
 type InputBoxProps = {
 	onSubmit: (text: string) => void;
+	onStop?: () => void;
+	className?: string;
 };
 
-export function InputBox({ onSubmit }: InputBoxProps) {
+export type InputBoxRef = {
+	setInput: (text: string) => void;
+	focus: () => void;
+};
+
+export const InputBox = forwardRef<InputBoxRef, InputBoxProps>(function InputBox({ onSubmit, onStop, className = "" }, ref) {
 	const { isRunning } = useAppContext();
 	const [input, setInput] = useState("");
 	const [historyIndex, setHistoryIndex] = useState(-1);
 	const [isComposing, setIsComposing] = useState(false);
 	const tempInputRef = useRef("");
+	const textareaRef = useRef<HTMLTextAreaElement>(null);
+
+	useImperativeHandle(ref, () => ({
+		setInput: (text: string) => {
+			setInput(text);
+			setHistoryIndex(-1);
+			tempInputRef.current = "";
+		},
+		focus: () => {
+			textareaRef.current?.focus();
+		},
+	}));
 
 	const handleKeyDown = (e: React.KeyboardEvent<HTMLTextAreaElement>) => {
 		if (e.key === "Enter" && !e.shiftKey && !isComposing) {
@@ -81,35 +101,46 @@ export function InputBox({ onSubmit }: InputBoxProps) {
 	};
 
 	return (
-		<div className="sticky bottom-0 pb-4 pt-2 px-4 bg-gradient-to-t from-white from-50% to-transparent">
+		<div className={className}>
 			<form onSubmit={handleSubmit}>
-				<div className="bg-zinc-100 rounded-3xl px-4 py-2">
+				<div className="bg-zinc-100 rounded-3xl px-4 py-3">
 					<textarea
+						ref={textareaRef}
 						value={input}
 						onChange={(e) => setInput(e.target.value)}
 						onKeyDown={handleKeyDown}
 						onCompositionStart={() => setIsComposing(true)}
 						onCompositionEnd={() => setIsComposing(false)}
-						placeholder="输入任务..."
+						placeholder="输入任务开始自动化操作..."
 						rows={1}
-						className="w-full bg-transparent focus:outline-none resize-none text-zinc-900 placeholder-zinc-400 disabled:cursor-not-allowed"
+						className="w-full bg-transparent focus:outline-none resize-none text-zinc-900 text-sm placeholder-zinc-400 placeholder:font-normal disabled:cursor-not-allowed"
 						disabled={isRunning}
 						style={{ minHeight: "24px" }}
 					/>
-					<div className="flex items-center justify-between mt-2">
-						<div className="text-zinc-400 text-xs">
+					<div className="flex items-end justify-between mt-2">
+						<div className="text-zinc-300 text-xs">
 							{getHistory().length > 0 ? "↑ 查看历史  /  Shift+Enter 换行" : "Shift+Enter 换行"}
 						</div>
-						<button
-							type="submit"
-							disabled={isRunning || !input.trim()}
-							className="bg-zinc-900 hover:bg-zinc-700 disabled:bg-zinc-300 text-white w-8 h-8 rounded-full flex items-center justify-center transition"
-						>
-							{isRunning ? "·" : "↑"}
-						</button>
+						{isRunning ? (
+							<button
+								type="button"
+								onClick={onStop}
+								className="bg-zinc-900 hover:bg-zinc-700 text-white w-9 h-9 rounded-3xl flex items-center justify-center transition flex-shrink-0"
+							>
+								<Square size={14} fill="currentColor" />
+							</button>
+						) : (
+							<button
+								type="submit"
+								disabled={!input.trim()}
+								className="bg-zinc-900 hover:bg-zinc-700 disabled:bg-zinc-300 text-white w-9 h-9 rounded-3xl flex items-center justify-center transition flex-shrink-0"
+							>
+								↑
+							</button>
+						)}
 					</div>
 				</div>
 			</form>
 		</div>
 	);
-}
+});

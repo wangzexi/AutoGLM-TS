@@ -2,10 +2,18 @@
  * oRPC Server Router - API 定义
  */
 
-import { os, ORPCError } from "@orpc/server";
+import { os } from "@orpc/server";
 import { z } from "zod";
 import { createAgent, StepResult } from "../agent.ts";
 import * as adb from "../actions/adb.ts";
+import {
+	createSession,
+	closeSession,
+	getSession,
+	appendUserMessage,
+	appendAssistantMessage,
+	getHistoryMessages,
+} from "../session.ts";
 
 // Schema 定义
 const StepSchema = z.object({
@@ -18,24 +26,48 @@ const StepSchema = z.object({
 	message: z.string().optional(),
 });
 
-type TaskStatus = "running" | "completed" | "failed" | "cancelled";
+// ============ Session 相关 ============
 
-type TaskData = {
-	task: string;
-	status: TaskStatus;
-	steps: z.infer<typeof StepSchema>[];
-	result?: string;
-	agent?: ReturnType<typeof createAgent>;
-	abortController?: AbortController;
-};
+export const sessionCreate = os
+	.input(z.object({ deviceId: z.string() }))
+	.handler(async ({ input }) => {
+		const session = createSession(input.deviceId);
+		return {
+			id: session.id,
+			deviceId: session.deviceId,
+			messages: session.messages,
+		};
+	});
 
-// 任务存储（内存）
-const tasks = new Map<string, TaskData>();
+export const sessionClose = os.handler(async () => {
+	closeSession();
+	return { success: true };
+});
 
-// 生成 ID
-const genId = () => Math.random().toString(36).slice(2, 10);
+export const sessionGet = os.handler(async () => {
+	const session = getSession();
+	if (!session) {
+		return null;
+	}
 
-// 设备相关
+	// 检查设备是否仍然连接
+	const devices = await adb.listDevices();
+	const deviceConnected = devices.some((d) => d.deviceId === session.deviceId);
+	if (!deviceConnected) {
+		// 设备断开，销毁 session
+		closeSession();
+		return null;
+	}
+
+	return {
+		id: session.id,
+		deviceId: session.deviceId,
+		messages: session.messages,
+	};
+});
+
+// ============ 设备相关 ============
+
 export const listDevices = os.handler(async () => {
 	const devices = await adb.listDevices();
 	// 并行获取所有设备截图
@@ -98,49 +130,72 @@ export const deviceSwipe = os
 		return { success: true };
 	});
 
-// 任务相关
+// ============ 任务相关 ============
+
 export const startTask = os
-	.input(z.object({
-		task: z.string().min(1),
-		deviceId: z.string().optional(),
-	}))
+	.input(z.object({ task: z.string().min(1) }))
 	.handler(async function* ({ input }) {
-		const id = genId();
-		const agent = createAgent({ deviceId: input.deviceId });
-		const abortController = new AbortController();
+		const session = getSession();
+		if (!session) {
+			yield { type: "error" as const, error: "请先创建会话" };
+			return;
+		}
 
-		const taskData: TaskData = {
-			task: input.task,
-			status: "running",
-			steps: [],
-			agent,
-			abortController,
-		};
-		tasks.set(id, taskData);
+		// 追加用户消息到 session
+		appendUserMessage(input.task);
 
-		// 返回任务 ID
-		yield { type: "started" as const, id };
+		// 创建 agent，传入历史上下文和 signal
+		const agent = createAgent({
+			deviceId: session.deviceId,
+			signal: session.abortController.signal,
+			historyMessages: getHistoryMessages().slice(0, -1), // 排除刚添加的当前任务
+		});
+
+		yield { type: "started" as const };
 
 		try {
 			agent.reset();
 			let stepIndex = 0;
-			let result: StepResult;
+			let result: StepResult | undefined;
+			let lastThinking = "";
 
 			do {
-				if (abortController.signal.aborted) {
-					taskData.status = "cancelled";
+				// 检查是否被取消
+				if (session.abortController.signal.aborted) {
 					yield { type: "cancelled" as const };
 					return;
 				}
 
 				// 获取截图
-				const screenshot = await adb.getScreenshot(input.deviceId);
+				const screenshot = await adb.getScreenshot(session.deviceId);
 
 				// 先发送截图，让前端显示"思考中"
-				yield { type: "thinking" as const, index: stepIndex, screenshot: screenshot.base64 };
+				yield { type: "thinking" as const, screenshot: screenshot.base64 };
 
-				// 执行一步（首次传 task，后续不传）
-				result = await agent.step(stepIndex === 0 ? input.task : undefined);
+				// 执行一步（generator）- 使用 for await...of 处理所有事件
+				let currentThinking = "";
+				let currentAction: Record<string, unknown> | undefined;
+
+				for await (const event of agent.step(stepIndex === 0 ? input.task : undefined)) {
+					if (event.type === "thinking") {
+						currentThinking = event.thinking;
+						// 立即发送 thinking
+						yield { type: "inference" as const, thinking: currentThinking, screenshot: screenshot.base64 };
+					} else if (event.type === "action") {
+						currentAction = event.action;
+						// 立即发送 action（执行前）
+						yield { type: "action" as const, action: currentAction, screenshot: screenshot.base64 };
+					} else if (event.type === "done") {
+						result = event.result;
+						lastThinking = result.thinking || currentThinking;
+					}
+				}
+
+				// 发送执行结果
+				if (!result) {
+					yield { type: "failed" as const, error: "步骤未返回结果" };
+					return;
+				}
 
 				const step: z.infer<typeof StepSchema> = {
 					index: stepIndex++,
@@ -152,61 +207,52 @@ export const startTask = os
 					message: result.message,
 				};
 
-				taskData.steps.push(step);
 				yield { type: "step" as const, step };
 
-			} while (!result.finished && stepIndex < 100);
+			} while (!result?.finished && stepIndex < 100);
 
-			taskData.status = "completed";
-			taskData.result = result.message || "完成";
-			yield { type: "completed" as const, result: taskData.result };
+			// 追加助手消息到 session（包含最终结果）
+			const assistantMessage = result?.message || lastThinking || "完成";
+			appendAssistantMessage(assistantMessage);
+
+			yield { type: "completed" as const, result: assistantMessage };
 
 		} catch (e) {
-			taskData.status = "failed";
-			taskData.result = String(e);
-			yield { type: "failed" as const, error: String(e) };
+			const errorMsg = String(e);
+			// 如果是 abort 错误，不追加消息
+			if (!errorMsg.includes("abort")) {
+				appendAssistantMessage(`执行出错: ${errorMsg}`);
+			}
+			yield { type: "failed" as const, error: errorMsg };
 		}
 	});
 
-export const getTask = os
-	.input(z.object({ id: z.string() }))
-	.handler(async ({ input }) => {
-		const task = tasks.get(input.id);
-		if (!task) {
-			throw new ORPCError("NOT_FOUND", { message: "任务不存在" });
-		}
-		return {
-			id: input.id,
-			task: task.task,
-			status: task.status,
-			steps: task.steps,
-			result: task.result,
-		};
-	});
-
-export const cancelTask = os
-	.input(z.object({ id: z.string() }))
-	.handler(async ({ input }) => {
-		const task = tasks.get(input.id);
-		if (!task) {
-			throw new ORPCError("NOT_FOUND", { message: "任务不存在" });
-		}
-		task.abortController?.abort();
-		task.status = "cancelled";
-		return { success: true };
-	});
-
-export const listTasks = os.handler(async () => {
-	return Array.from(tasks.entries()).map(([id, task]) => ({
-		id,
-		task: task.task,
-		status: task.status,
-		stepCount: task.steps.length,
-	}));
+export const cancelTask = os.handler(async () => {
+	const session = getSession();
+	if (session) {
+		session.abortController.abort();
+		// 重新创建 abortController 以便下次任务可以继续
+		session.abortController = new AbortController();
+	}
+	return { success: true };
 });
 
-// 路由
+// ============ 配置 ============
+
+export const configGet = os.handler(async () => {
+	return {
+		model: process.env.PHONE_AGENT_MODEL || "unknown",
+	};
+});
+
+// ============ 路由 ============
+
 export const router = {
+	session: {
+		create: sessionCreate,
+		close: sessionClose,
+		get: sessionGet,
+	},
 	device: {
 		list: listDevices,
 		home: deviceHome,
@@ -217,9 +263,10 @@ export const router = {
 	},
 	task: {
 		start: startTask,
-		get: getTask,
 		cancel: cancelTask,
-		list: listTasks,
+	},
+	config: {
+		get: configGet,
 	},
 };
 

@@ -123,10 +123,10 @@ export async function recent(deviceId?: string) {
 }
 
 export async function typeText(text: string, deviceId?: string) {
-	// 使用 ADB Keyboard broadcast
-	const encoded = encodeURIComponent(text);
+	// 使用 Base64 编码发送（支持中文和特殊字符）
+	const encoded = Buffer.from(text, 'utf8').toString('base64');
 	await shell(
-		`am broadcast -a ADB_INPUT_TEXT --es msg '${encoded}'`,
+		`am broadcast -a ADB_INPUT_B64 --es msg '${encoded}'`,
 		deviceId
 	);
 }

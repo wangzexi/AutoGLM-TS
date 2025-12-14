@@ -97,7 +97,7 @@ export function PhonePreview({ onBack, latestScreenshot }: PhonePreviewProps) {
 	};
 
 	return (
-		<div className="w-80 flex-shrink-0 border-l border-zinc-100 bg-zinc-50 p-4 sticky top-0 h-screen flex items-center justify-center">
+		<div className="w-80 flex-shrink-0 bg-white p-4 sticky top-0 h-screen flex items-center justify-center">
 			<div className="relative group">
 				<div className="absolute -top-10 left-0 right-0 flex justify-between items-center opacity-0 group-hover:opacity-100 transition-opacity z-10">
 					<span className="text-sm text-zinc-500 truncate max-w-[140px]">
