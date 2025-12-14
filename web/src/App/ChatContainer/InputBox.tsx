@@ -1,6 +1,6 @@
 import { Square } from "lucide-react";
 import { forwardRef, useImperativeHandle, useRef, useState } from "react";
-import { useAppContext } from "../AppContext";
+import { useIsRunning } from "../AppContext";
 
 const HISTORY_KEY = "autoglm-input-history";
 const MAX_HISTORY = 50;
@@ -33,7 +33,7 @@ export type InputBoxRef = {
 
 export const InputBox = forwardRef<InputBoxRef, InputBoxProps>(
   function InputBox({ onSubmit, onStop, className = "" }, ref) {
-    const { isRunning } = useAppContext();
+    const isRunning = useIsRunning();
     const [input, setInput] = useState("");
     const [historyIndex, setHistoryIndex] = useState(-1);
     const [isComposing, setIsComposing] = useState(false);

@@ -18,7 +18,6 @@ export type SessionMessage = {
 
 export type Device = {
   deviceId: string;
-  status: string;
   model?: string;
   brand?: string;
   marketName?: string;
@@ -31,8 +30,6 @@ export type AppContextType = {
   setSelectedDevice: (device: Device) => void;
   messages: Message[];
   setMessages: (messages: Message[] | ((prev: Message[]) => Message[])) => void;
-  isRunning: boolean;
-  setIsRunning: (running: boolean) => void;
   enlargedScreenshot: string | null;
   setEnlargedScreenshot: (screenshot: string | null) => void;
   model: string | null;
@@ -47,4 +44,14 @@ export function useAppContext() {
     throw new Error("useAppContext must be used within AppProvider");
   }
   return context;
+}
+
+// 根据消息列表计算是否正在运行
+export function useIsRunning(): boolean {
+  const { messages } = useAppContext();
+  const lastMessage = messages[messages.length - 1];
+  return (
+    lastMessage?.role === "assistant" &&
+    !lastMessage.finished
+  );
 }

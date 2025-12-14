@@ -1,6 +1,7 @@
 import { useRef } from "react";
 import type { Message } from "../AppContext";
 import { useAppContext } from "../AppContext";
+import { client } from "../../client";
 import { InputBox, type InputBoxRef } from "./InputBox";
 import { MessageList } from "./MessageList";
 import { PhonePreview } from "./PhonePreview";
@@ -12,8 +13,7 @@ type ChatContainerProps = {
 };
 
 export function ChatContainer({ onBack }: ChatContainerProps) {
-  const { selectedDevice, messages, setMessages, setIsRunning } =
-    useAppContext();
+  const { selectedDevice, messages, setMessages } = useAppContext();
   const inputBoxRef = useRef<InputBoxRef>(null);
 
   const getLatestScreenshot = (): string | undefined => {
@@ -33,17 +33,11 @@ export function ChatContainer({ onBack }: ChatContainerProps) {
   };
 
   const handleStop = async () => {
-    await fetch("/rpc/task/cancel", {
-      method: "POST",
-      headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({ json: {} }),
-    });
-    setIsRunning(false);
+    await client.task.cancel();
   };
 
   const handleSubmit = async (userMessage: string) => {
     setMessages((prev) => [...prev, { role: "user", content: userMessage }]);
-    setIsRunning(true);
 
     try {
       const res = await fetch("/rpc/task/start", {
@@ -139,8 +133,6 @@ export function ChatContainer({ onBack }: ChatContainerProps) {
         ...prev,
         { role: "assistant", thinking: "执行出错，请重试", finished: true },
       ]);
-    } finally {
-      setIsRunning(false);
     }
   };
 

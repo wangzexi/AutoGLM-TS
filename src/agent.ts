@@ -34,11 +34,7 @@ type Message = {
 };
 
 type AgentConfig = {
-  baseUrl?: string;
-  apiKey?: string;
-  model?: string;
   deviceId?: string;
-  maxSteps?: number;
   signal?: AbortSignal; // 用于终止执行
   historyMessages?: Array<{ role: "user" | "assistant"; content: string }>; // 历史上下文
 };
@@ -149,14 +145,13 @@ const parseResponse = (content: string): ParseResult => {
 // 创建 Agent（闭包工厂）
 export const createAgent = (config: AgentConfig = {}) => {
   const baseUrl =
-    config.baseUrl ||
-    process.env.PHONE_AGENT_BASE_URL ||
+    process.env.AUTOGLM_BASE_URL ||
     "https://open.bigmodel.cn/api/paas/v4";
-  const apiKey = config.apiKey || process.env.PHONE_AGENT_API_KEY || "";
+  const apiKey = process.env.AUTOGLM_API_KEY || "";
   const model =
-    config.model || process.env.PHONE_AGENT_MODEL || "autoglm-phone";
+    process.env.AUTOGLM_MODEL || "autoglm-phone";
   const deviceId = config.deviceId;
-  const maxSteps = config.maxSteps || 100;
+  const maxSteps = parseInt(process.env.AUTOGLM_MAX_STEPS || "100", 10);
   const signal = config.signal;
   const historyMessages = config.historyMessages || [];
 

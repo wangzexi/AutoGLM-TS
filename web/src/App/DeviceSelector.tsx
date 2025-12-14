@@ -1,15 +1,10 @@
 import { useQuery } from "@tanstack/react-query";
 import type { Device } from "./AppContext";
 import { useAppContext } from "./AppContext";
+import { client } from "../client";
 
 async function fetchDevices(): Promise<Device[]> {
-  const res = await fetch("/rpc/device/list", {
-    method: "POST",
-    headers: { "Content-Type": "application/json" },
-    body: JSON.stringify({ json: {} }),
-  });
-  const data = await res.json();
-  return data.json || [];
+  return client.device.list();
 }
 
 export function DeviceSelector() {

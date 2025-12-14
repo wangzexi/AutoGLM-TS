@@ -1,4 +1,5 @@
 import { X } from "lucide-react";
+import { useQuery } from "@tanstack/react-query";
 import { useEffect, useState } from "react";
 import type {
   AppContextType,
@@ -9,21 +10,11 @@ import type {
 import { AppContext } from "./AppContext";
 import { ChatContainer } from "./ChatContainer";
 import { DeviceSelector } from "./DeviceSelector";
-
-// Session API
-async function rpc(path: string, json: Record<string, unknown> = {}) {
-  const res = await fetch(`/rpc/${path}`, {
-    method: "POST",
-    headers: { "Content-Type": "application/json" },
-    body: JSON.stringify({ json }),
-  });
-  return res.json();
-}
+import { client } from "../client";
 
 export default function App() {
   const [selectedDevice, setSelectedDevice] = useState<Device | null>(null);
   const [messages, setMessages] = useState<Message[]>([]);
-  const [isRunning, setIsRunning] = useState(false);
   const [enlargedScreenshot, setEnlargedScreenshot] = useState<string | null>(
     null,
   );
@@ -32,17 +23,16 @@ export default function App() {
   // 页面加载时尝试恢复 session 并获取配置
   useEffect(() => {
     // 获取模型配置
-    rpc("config/get").then((data) => {
-      if (data.json?.model) {
-        setModel(data.json.model);
+    client.config.get().then((data) => {
+      if (data.model) {
+        setModel(data.model);
       }
     });
 
-    rpc("session/get").then((data) => {
-      const session = data.json;
-      if (session) {
+    client.session.get().then((data) => {
+      if (data) {
         // 恢复历史消息
-        const restored: Message[] = session.messages.map((m: SessionMessage) =>
+        const restored: Message[] = data.messages.map((m: SessionMessage) =>
           m.role === "user"
             ? { role: "user" as const, content: m.content }
             : {
@@ -53,37 +43,36 @@ export default function App() {
         );
         setMessages(restored);
         // 恢复设备（只设置 deviceId，其他信息从设备列表获取）
-        setSelectedDevice({ deviceId: session.deviceId, status: "device" });
+        setSelectedDevice({ deviceId: data.deviceId });
       }
     });
   }, []);
 
   // 轮询检测设备断开
+  const { data: session } = useQuery({
+    queryKey: ["session"],
+    queryFn: () => client.session.get(),
+    refetchInterval: selectedDevice ? 2000 : false,
+    enabled: !!selectedDevice,
+  });
+
   useEffect(() => {
-    if (!selectedDevice) return;
-
-    const interval = setInterval(async () => {
-      const data = await rpc("session/get");
-      if (!data.json) {
-        // session 被销毁（设备断开）
-        setSelectedDevice(null);
-        setMessages([]);
-      }
-    }, 2000);
-
-    return () => clearInterval(interval);
-  }, [selectedDevice]);
+    if (!session) {
+      setSelectedDevice(null);
+      setMessages([]);
+    }
+  }, [session]);
 
   // 选择设备时创建 session
   const handleSelectDevice = async (device: Device) => {
-    await rpc("session/create", { deviceId: device.deviceId });
+    await client.session.create({ deviceId: device.deviceId });
     setSelectedDevice(device);
     setMessages([]);
   };
 
   // 关闭时销毁 session
   const handleBack = async () => {
-    await rpc("session/close");
+    await client.session.close();
     setSelectedDevice(null);
     setMessages([]);
   };
@@ -93,8 +82,6 @@ export default function App() {
     setSelectedDevice: handleSelectDevice,
     messages,
     setMessages,
-    isRunning,
-    setIsRunning,
     enlargedScreenshot,
     setEnlargedScreenshot,
     model,

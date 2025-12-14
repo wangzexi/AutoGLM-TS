@@ -5,10 +5,10 @@
   "description": "Phone agent powered by GLM vision-language models",
   "main": "./src/index.ts",
   "scripts": {
-    "start": "tsx --env-file=.env src/main.ts",
-    "dev": "concurrently -n server,web -c blue,green \"tsx --env-file=.env --watch src/main.ts\" \"cd web && npm run dev\"",
+    "start": "npm run build && node --env-file=.env src/main.ts",
+    "dev": "concurrently -n server,web -c blue,green \"node --watch --env-file=.env src/main.ts\" \"cd web && npm run dev\"",
     "build": "cd web && npm run build",
-    "check": "biome check . --fix --unsafe"
+    "check": "biome check . --fix"
   },
   "author": "",
   "license": "MIT",
@@ -17,7 +17,6 @@
     "@orpc/server": "^1.12.3",
     "@yume-chan/adb": "^2.3.1",
     "@yume-chan/adb-server-node-tcp": "^2.1.0",
-    "@yume-chan/stream-extra": "^2.1.0",
     "commander": "^14.0.2",
     "dayjs": "^1.11.19",
     "hono": "^4.11.0",
@@ -30,8 +29,6 @@
   "devDependencies": {
     "@biomejs/biome": "^1.9.3",
     "@types/node": "^25.0.1",
-    "concurrently": "^9.2.1",
-    "tsx": "^4.21.0",
-    "typescript": "^5.9.3"
+    "concurrently": "^9.2.1"
   }
 }

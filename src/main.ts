@@ -9,10 +9,6 @@ import { createWebServer } from "./server/index.ts";
 
 // 参数 schema
 const argsSchema = z.object({
-  baseUrl: z.string().optional(),
-  model: z.string().optional(),
-  apiKey: z.string().optional(),
-  maxSteps: z.number().optional(),
   deviceId: z.string().optional(),
   task: z.string().optional(),
   port: z.number().default(3000),
@@ -25,10 +21,6 @@ const parseArgs = (): Args => {
   const program = new Command();
 
   program
-    .option("--base-url <url>", "模型 API 地址")
-    .option("--model <name>", "模型名称")
-    .option("--apikey <key>", "API 密钥")
-    .option("--max-steps <n>", "最大步数", Number.parseInt)
     .option("-d, --device <id>", "设备 ID")
     .option("--port <n>", "服务器端口", Number.parseInt)
     .argument("[task]", "执行的任务")
@@ -38,10 +30,6 @@ const parseArgs = (): Args => {
   const task = program.args[0];
 
   return argsSchema.parse({
-    baseUrl: opts.baseUrl,
-    model: opts.model,
-    apiKey: opts.apikey,
-    maxSteps: opts.maxSteps,
     deviceId: opts.device,
     task,
     port: opts.port,
@@ -51,6 +39,14 @@ const parseArgs = (): Args => {
 // 主入口
 const main = async () => {
   const args = parseArgs();
+
+  // 检查必要的环境变量
+  const apiKey = process.env.AUTOGLM_API_KEY;
+  if (!apiKey) {
+    throw new Error(
+      "❌ 缺少 API_KEY 配置\n请设置环境变量 AUTOGLM_API_KEY",
+    );
+  }
 
   // 直接执行任务（无 UI）
   if (args.task) {
@@ -84,4 +80,7 @@ const main = async () => {
   });
 };
 
-main();
+main().catch((e) => {
+  console.error(e.message || e);
+  process.exit(1);
+});

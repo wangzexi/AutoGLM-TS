@@ -260,7 +260,7 @@ export const cancelTask = os.handler(async () => {
 
 export const configGet = os.handler(async () => {
   return {
-    model: process.env.PHONE_AGENT_MODEL || "unknown",
+    model: process.env.AUTOGLM_MODEL || "unknown",
   };
 });
 

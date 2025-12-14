@@ -2,14 +2,7 @@ import { useMutation, useQuery } from "@tanstack/react-query";
 import { Home, ImageDown, LayoutGrid, X } from "lucide-react";
 import { useRef, useState } from "react";
 import { useAppContext } from "../AppContext";
-
-async function rpc(path: string, json: Record<string, unknown>) {
-  return fetch(`/rpc/${path}`, {
-    method: "POST",
-    headers: { "Content-Type": "application/json" },
-    body: JSON.stringify({ json }),
-  });
-}
+import { client } from "../../client";
 
 type PhonePreviewProps = {
   onBack: () => void;
@@ -31,11 +24,10 @@ export function PhonePreview({ onBack, latestScreenshot }: PhonePreviewProps) {
   const { data: liveScreenshotData } = useQuery({
     queryKey: ["screenshot", selectedDevice?.deviceId],
     queryFn: async () => {
-      const res = await rpc("device/screenshot", {
+      const data = await client.device.screenshot({
         deviceId: selectedDevice?.deviceId,
       });
-      const data = await res.json();
-      return data.json?.screenshot as string | undefined;
+      return data.screenshot;
     },
     enabled: Boolean(selectedDevice),
     refetchInterval: 500,
@@ -43,22 +35,22 @@ export function PhonePreview({ onBack, latestScreenshot }: PhonePreviewProps) {
 
   const homeMutation = useMutation({
     mutationFn: () =>
-      rpc("device/home", { deviceId: selectedDevice?.deviceId }),
+      client.device.home({ deviceId: selectedDevice?.deviceId }),
   });
 
   const recentMutation = useMutation({
     mutationFn: () =>
-      rpc("device/recent", { deviceId: selectedDevice?.deviceId }),
+      client.device.recent({ deviceId: selectedDevice?.deviceId }),
   });
 
   const tapMutation = useMutation({
     mutationFn: (p: { x: number; y: number }) =>
-      rpc("device/tap", { deviceId: selectedDevice?.deviceId, ...p }),
+      client.device.tap({ deviceId: selectedDevice?.deviceId, ...p }),
   });
 
   const swipeMutation = useMutation({
     mutationFn: (p: { x1: number; y1: number; x2: number; y2: number }) =>
-      rpc("device/swipe", { deviceId: selectedDevice?.deviceId, ...p }),
+      client.device.swipe({ deviceId: selectedDevice?.deviceId, ...p }),
   });
 
   const displayScreenshot = liveScreenshotData || latestScreenshot;
