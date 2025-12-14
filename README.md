@@ -1,22 +1,48 @@
 # AutoGLM-TS
 
-AI 驱动的 Android 手机自动化代理。使用 GLM 视觉语言模型推理，通过 ADB 与 Android 设备交互。
+AI 驱动的 Android 手机自动化代理。通过 GLM 视觉语言模型推理，用 @yume-chan/adb 控制设备。
 
 ## 特性
 
 - 🤖 **AI 驱动**: 基于 GLM 视觉语言模型的智能推理
 - 📱 **完整控制**: 点击、滑动、长按、文字输入等丰富操作
 - 🔌 **多设备支持**: USB、TCP/IP 连接，支持多设备管理
-- ⚡ **高效架构**: Node.js 24 原生支持、流式模型响应处理
-- 💬 **交互模式**: 支持 CLI 命令行和现代 Ink React 终端 UI
+- ⚡ **高效架构**: Node.js 24 ES modules、流式响应处理
+- 💬 **双模式**: CLI 命令行执行 + 现代 Web UI 交互
 
 ## 系统要求
 
 - **Node.js**: >= 24.x
 - **Android 设备**: 支持 ADB 调试（Android 5.0+）
 - **ADB 工具**: Android SDK Platform Tools
-- **ADB Keyboard**: 需要在设备上安装并启用
+- **ADB Keyboard**: 需要在设备上安装并启用（用于文字输入）
 - **权限**: USB 调试权限
+
+## 工具安装
+
+### ADB 工具
+
+```bash
+# 下载 ADB（macOS）
+curl -L -o platform-tools.zip https://dl.google.com/android/repository/platform-tools-latest-darwin.zip
+unzip -j platform-tools.zip "platform-tools/adb" -d /usr/local/bin/
+# Linux: 将 darwin 改为 linux
+# Windows: 将 darwin 改为 windows
+```
+
+### ADB Keyboard
+
+```bash
+# 下载 APK
+curl -L -o ADBKeyboard.apk https://github.com/senzhk/ADBKeyBoard/raw/master/ADBKeyboard.apk
+# 或使用代理（如需要）：
+# curl -x http://localhost:1080 -L -o ADBKeyboard.apk https://github.com/senzhk/ADBKeyBoard/raw/master/ADBKeyboard.apk
+
+# 安装到设备
+adb install ADBKeyboard.apk
+
+# 启用：设置 → 语言与输入法 → 虚拟键盘 → 选择 ADB Keyboard
+```
 
 ## 快速开始
 
@@ -30,7 +56,7 @@ npm install
 
 ### 2. 配置
 
-创建 `.env` 文件配置 API：
+创建 `.env` 文件：
 
 ```env
 PHONE_AGENT_BASE_URL=https://open.bigmodel.cn/api/paas/v4
@@ -42,109 +68,73 @@ PHONE_AGENT_MAX_STEPS=100
 ### 3. 运行
 
 ```bash
-npm start                      # 启动（自动检测 UI/CLI 模式）
+npm start                      # 启动 Web UI（http://localhost:3000）
+npm start -- "打开微信"       # 直接执行任务
+npm run dev                   # 开发模式（后端热重载 + Web 前端热更新）
 ```
 
-然后输入任务，例如：
-- `打开微信`
-- `打开淘宝搜索iPhone`
-- `打开美团点外卖`
+## 使用方式
 
-## 命令行使用
+### Web UI 模式（交互式）
 
-### 基本命令
-
+启动 Web 服务器：
 ```bash
-npm start                                  # 交互模式
-npm start -- "打开微信"                   # 单次任务
-npm run dev                               # 开发模式（文件监视）
+npm start
+# 打开 http://localhost:3000
 ```
 
-### 设备管理
+功能：
+- **设备选择器**: 首页显示所有连接的设备，点击选择
+- **实时截图**: 右侧显示设备当前屏幕（500ms 刷新）
+- **智能交互**:
+  - 输入任务，AI 模型判断下一步操作
+  - 实时反馈操作结果和模型思考过程
+  - 支持多行输入（Shift+Enter 换行，Enter 提交）
+- **直接操作**: 点击或拖动截图直接控制设备
+- **输入历史**: 自动保存最近 50 条输入，上/下箭头快速调用
 
+### CLI 命令行模式
+
+#### 直接执行任务
+```bash
+npm start -- "打开微信"
+npm start -- "搜索 iPhone"
+```
+
+#### 设备管理
 ```bash
 npm start -- --list-devices               # 列出所有设备
-npm start -- --connect 192.168.1.100:5555  # TCP/IP 连接
-npm start -- --disconnect [address]       # 断开连接
-npm start -- --enable-tcpip 5555          # 启用 TCP/IP
 ```
 
-### 模型配置
-
+#### 模型配置
 ```bash
-npm start -- --model autoglm-phone --base-url http://localhost:8000/v1 --apikey sk-xxx
-npm start -- --max-steps 50               # 设置最大步数
-npm start -- --device-id device-serial    # 指定设备
-```
-
-### 其他选项
-
-```bash
-npm start -- --list-apps                  # 列出支持的应用
-npm start -- --quiet "任务"               # 静默模式（无日志）
-```
-
-### 完整示例
-
-```bash
-# 在指定设备上执行任务
-npm start -- -d emulator-5554 "打开支付宝扫一扫"
-
-# 使用自定义 API
-npm start -- --model custom-model --base-url http://localhost:8000/v1 "打开微信"
-
-# 远程设备：先启用 TCP/IP
-npm start -- -d emulator-5554 --enable-tcpip 5555
-adb connect 192.168.1.100:5555
-npm start -- --connect 192.168.1.100:5555 "打开微信"
-```
-
-## 支持的应用
-
-支持 50+ 常用应用，包括：
-
-| 类型 | 应用 |
-|------|------|
-| 社交 | 微信、QQ、钉钉、飞书 |
-| 电商 | 淘宝、京东、拼多多、天猫 |
-| 视频 | 抖音、快手、B站、腾讯视频 |
-| 外卖 | 美团、饿了么、大众点评 |
-| 出行 | 滴滴、高德地图、美团地图 |
-| 支付 | 支付宝、微信支付 |
-| 其他 | 微博、小红书、网易云音乐 |
-
-完整列表：
-```bash
-npm start -- --list-apps
+npm start -- --model gpt-4o --base-url http://localhost:8000/v1 --apikey sk-xxx "任务"
+npm start -- --max-steps 50 "任务"       # 设置最大步数
+npm start -- --device emulator-5554 "任务"  # 指定设备
 ```
 
 ## 环境变量
 
 | 变量 | 说明 | 默认值 |
 |------|------|--------|
-| `PHONE_AGENT_BASE_URL` | API 地址 | `http://localhost:8000/v1` |
-| `PHONE_AGENT_MODEL` | 模型名称 | `autoglm-phone-9b` |
-| `PHONE_AGENT_API_KEY` | API 密钥 | `EMPTY` |
+| `PHONE_AGENT_BASE_URL` | API 地址 | - |
+| `PHONE_AGENT_MODEL` | 模型名称 | - |
+| `PHONE_AGENT_API_KEY` | API 密钥 | - |
 | `PHONE_AGENT_MAX_STEPS` | 最大步数 | `100` |
-| `PHONE_AGENT_DEVICE_ID` | 设备 ID | - |
+| `PHONE_AGENT_DEVICE_ID` | 设备 ID | 自动选择第一个 |
 
 ## 编程 API
 
 ```typescript
-import { PhoneAgent } from "./phone-agent/agent.ts";
+import { createAgent } from "./agent.ts";
 
-const agent = new PhoneAgent(
-  {
-    baseUrl: "http://localhost:8000/v1",
-    modelName: "autoglm-phone",
-    apiKey: "your-api-key",
-  },
-  {
-    maxSteps: 100,
-    deviceId: "emulator-5554",
-    verbose: true,
-  }
-);
+const agent = createAgent({
+  baseUrl: "http://localhost:8000/v1",
+  model: "autoglm-phone",
+  apiKey: "your-api-key",
+  maxSteps: 100,
+  deviceId: "emulator-5554",
+});
 
 // 运行任务
 const result = await agent.run("打开微信");
@@ -154,67 +144,79 @@ console.log(result);
 agent.reset();
 ```
 
-## 开发
+## 支持的操作
 
-### 项目结构
+模型可以发送以下操作命令：
+
+```
+do(tap={x: 0-1000, y: 0-1000})        # 点击
+do(swipe={x1, y1, x2, y2, duration})  # 滑动
+do(press={key: "HOME"|"BACK"|...})    # 按键
+do(type={text: "..."})                 # 输入文本
+do(launch={appId: "com.xxx"})         # 启动应用
+finish(message="...")                  # 完成任务
+```
+
+坐标范围 `0-1000` 是相对坐标，会自动转换为实际屏幕尺寸。
+
+## 项目结构
 
 ```
 src/
-├── main.ts                 # Node.js CLI 入口
-├── main.tsx                # Ink React UI 入口
-├── utils/args.ts           # 参数解析
-├── ui/                     # Ink 组件
-│   ├── App.tsx
-│   ├── DeviceList.tsx
-│   └── Interactive.tsx
-└── phone-agent/
-    ├── agent.ts            # 主代理类
-    ├── adb.ts              # ADB 统一接口
-    ├── actions.ts          # 操作处理
-    ├── model.ts            # 模型通信
-    ├── index.ts
-    └── config/
-        ├── apps.ts
-        ├── prompts.ts
-        └── index.ts
-```
+├── main.ts                 # 入口 - 参数解析、模式路由
+├── agent.ts                # 核心代理 - 任务执行循环
+├── config.ts               # 配置 - 提示词、应用列表
+├── server/
+│   ├── index.ts           # Hono 服务器启动
+│   └── router.ts          # oRPC 路由定义
+└── actions/
+    ├── index.ts           # 操作解析和执行
+    ├── adb.ts             # ADB 命令接口
+    ├── types.ts           # 操作类型定义
+    ├── tap.ts             # 点击操作
+    ├── swipe.ts           # 滑动操作
+    ├── press.ts           # 按键操作
+    ├── type.ts            # 输入操作
+    ├── launch.ts          # 启动应用
+    ├── navigate.ts        # 导航操作
+    └── special.ts         # 特殊操作
 
-### 开发模式
-
-```bash
-npm run dev                  # 启用文件监视
+web/
+├── src/App.tsx            # React 组件 - UI 逻辑
+└── dist/                  # 构建输出
 ```
 
 ## 常见问题
 
-### Q: 设备未检测到？
+### 设备未检测到？
 
-1. 启用 USB 调试：设置 → 开发者选项 → USB 调试
-2. 授权设备连接
-3. 验证 ADB：`adb devices`
+1. 连接 USB 线
+2. 启用 USB 调试：设置 → 开发者选项 → USB 调试
+3. 授权计算机访问
+4. 验证：`adb devices`
 
-### Q: ADB Keyboard 错误？
+### ADB Keyboard 安装失败？
 
-1. 下载：https://github.com/senzhk/ADBKeyBoard/blob/master/ADBKeyboard.apk
-2. 安装：`adb install ADBKeyboard.apk`
-3. 启用：设置 → 语言与输入法 → 虚拟键盘
+参考上面的"工具安装"部分了解详细步骤。常见问题：
+- 确保已安装 ADB 工具
+- 设备已连接且 USB 调试已启用
+- APK 下载完整（可尝试使用代理）
+- 手机进入"系统 → 语言与输入法 → 虚拟键盘"选择 ADB Keyboard
 
-### Q: API 连接失败？
+### API 认证错误？
 
-1. 检查 API 地址和密钥
-2. 验证网络连接
-3. 确保 API 服务正在运行
+确保 `.env` 文件配置正确：
+```env
+PHONE_AGENT_API_KEY=your-actual-api-key
+PHONE_AGENT_BASE_URL=https://api.example.com/v1
+```
 
-### Q: 模型输出不执行？
+### 模型响应缓慢？
 
-1. 检查设备屏幕状态
-2. 增加 `--max-steps` 限制
-3. 尝试重新启动 ADB
+- 检查网络连接
+- 确保 API 服务可用
+- 尝试减小 `--max-steps`
 
 ## 许可证
 
 MIT License
-
-## 贡献
-
-欢迎提交 Issue 和 Pull Request！

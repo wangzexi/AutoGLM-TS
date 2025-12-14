@@ -1,4 +1,5 @@
 import { useState, useRef, useEffect } from "react";
+import { useQuery } from "@tanstack/react-query";
 
 type Message =
 	| { role: "user"; content: string }
@@ -8,6 +9,9 @@ type Device = {
 	deviceId: string;
 	status: string;
 	model?: string;
+	brand?: string;
+	marketName?: string;
+	screenshot?: string;
 };
 
 const HISTORY_KEY = "autoglm-input-history";
@@ -25,33 +29,31 @@ function saveHistory(history: string[]) {
 	localStorage.setItem(HISTORY_KEY, JSON.stringify(history.slice(-MAX_HISTORY)));
 }
 
+async function fetchDevices(): Promise<Device[]> {
+	const res = await fetch("/rpc/device/list", {
+		method: "POST",
+		headers: { "Content-Type": "application/json" },
+		body: JSON.stringify({ json: {} }),
+	});
+	const data = await res.json();
+	return data.json || [];
+}
+
 export default function App() {
+	const [selectedDevice, setSelectedDevice] = useState<Device | null>(null);
 	const [input, setInput] = useState("");
 	const [messages, setMessages] = useState<Message[]>([]);
 	const [isRunning, setIsRunning] = useState(false);
 	const [historyIndex, setHistoryIndex] = useState(-1);
-	const [devices, setDevices] = useState<Device[]>([]);
-	const [selectedDevice, setSelectedDevice] = useState<string>("");
-	const tempInputRef = useRef(""); // 不需要状态，用 ref
+	const tempInputRef = useRef("");
 	const messagesEndRef = useRef<HTMLDivElement>(null);
 
-	// 获取设备列表
-	useEffect(() => {
-		fetch("/rpc/device/list", {
-			method: "POST",
-			headers: { "Content-Type": "application/json" },
-			body: JSON.stringify({ json: {} }),
-		})
-			.then((res) => res.json())
-			.then((data) => {
-				const list = data.json || [];
-				setDevices(list);
-				if (list.length > 0 && !selectedDevice) {
-					setSelectedDevice(list[0].deviceId);
-				}
-			})
-			.catch(console.error);
-	}, []);
+	// 轮询设备列表（仅在未选择设备时）
+	const { data: devices = [] } = useQuery({
+		queryKey: ["devices"],
+		queryFn: fetchDevices,
+		refetchInterval: selectedDevice ? false : 1000,
+	});
 
 	// 滚动到底部
 	useEffect(() => {
@@ -59,7 +61,6 @@ export default function App() {
 	}, [messages]);
 
 	const handleKeyDown = (e: React.KeyboardEvent<HTMLTextAreaElement>) => {
-		// Enter 提交，Shift+Enter 换行
 		if (e.key === "Enter" && !e.shiftKey) {
 			e.preventDefault();
 			if (input.trim() && !isRunning) {
@@ -68,7 +69,6 @@ export default function App() {
 			return;
 		}
 
-		// 历史记录导航
 		const history = getHistory();
 		if (history.length === 0) return;
 
@@ -95,11 +95,9 @@ export default function App() {
 
 	const handleSubmit = async (e: React.FormEvent) => {
 		e.preventDefault();
-		if (!input.trim() || isRunning) return;
+		if (!input.trim() || isRunning || !selectedDevice) return;
 
 		const userMessage = input.trim();
-
-		// 保存到历史
 		const history = getHistory();
 		if (history[history.length - 1] !== userMessage) {
 			saveHistory([...history, userMessage]);
@@ -115,7 +113,7 @@ export default function App() {
 			const res = await fetch("/rpc/task/start", {
 				method: "POST",
 				headers: { "Content-Type": "application/json" },
-				body: JSON.stringify({ json: { task: userMessage, deviceId: selectedDevice || undefined } }),
+				body: JSON.stringify({ json: { task: userMessage, deviceId: selectedDevice.deviceId } }),
 			});
 
 			if (!res.ok) throw new Error("请求失败");
@@ -166,35 +164,87 @@ export default function App() {
 		}
 	};
 
+	const handleBack = () => {
+		setSelectedDevice(null);
+		setMessages([]);
+		setInput("");
+	};
+
+	// 设备选择页面
+	if (!selectedDevice) {
+		return (
+			<div className="min-h-screen bg-white text-zinc-900 p-8">
+				<div className="max-w-4xl mx-auto">
+					<h1 className="text-2xl font-medium mb-2">AutoGLM</h1>
+					<p className="text-zinc-500 mb-8">选择要操作的设备</p>
+
+					{devices.length === 0 ? (
+						<div className="text-center py-20 text-zinc-400">
+							<div className="text-5xl mb-4">📱</div>
+							<p>未检测到设备</p>
+							<p className="text-sm mt-2">请连接 Android 设备并开启 USB 调试</p>
+						</div>
+					) : (
+						<div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-4">
+							{devices.map((device) => (
+								<button
+									key={device.deviceId}
+									onClick={() => setSelectedDevice(device)}
+									className="bg-zinc-100 rounded-2xl p-3 hover:bg-zinc-200 transition text-left"
+								>
+									{device.screenshot ? (
+										<div className="h-80 flex items-center justify-center">
+											<img
+												src={`data:image/png;base64,${device.screenshot}`}
+												alt={device.model || device.deviceId}
+												className="max-h-full max-w-full object-contain rounded-xl"
+											/>
+										</div>
+									) : (
+										<div className="h-80 bg-zinc-300 rounded-xl flex items-center justify-center text-zinc-500">
+											无法获取截图
+										</div>
+									)}
+									<div className="mt-2 px-1">
+										<div className="font-medium truncate">
+											{device.marketName || device.model || device.deviceId}
+										</div>
+										<div className="text-xs text-zinc-500">{device.brand}</div>
+									</div>
+								</button>
+							))}
+						</div>
+					)}
+				</div>
+			</div>
+		);
+	}
+
+	// 对话页面
 	return (
 		<div className="min-h-screen bg-white text-zinc-900">
-			{/* 消息区域 */}
-			<div className="max-w-3xl mx-auto px-4 pt-4 pb-24 space-y-6">
-				{messages.length === 0 && (
-					<div className="h-[80vh] flex items-center justify-center text-zinc-400">
-						<div className="text-center">
-							<div className="text-6xl mb-4">📱</div>
-							<p className="text-lg">AutoGLM</p>
-							<p className="text-sm mt-2">输入任务开始自动化操作</p>
+			{/* 顶部栏 */}
+			<div className="sticky top-0 bg-white/80 backdrop-blur border-b border-zinc-100 px-4 py-3">
+				<div className="max-w-3xl mx-auto flex items-center gap-3">
+					<button
+						onClick={handleBack}
+						className="text-zinc-500 hover:text-zinc-900 transition"
+					>
+						← 返回
+					</button>
+					<span className="text-zinc-900 font-medium">
+						{selectedDevice.marketName || selectedDevice.model || selectedDevice.deviceId}
+					</span>
+				</div>
+			</div>
 
-							{/* 设备选择 */}
-							<div className="mt-6">
-								{devices.length === 0 ? (
-									<p className="text-sm text-zinc-500">未检测到设备</p>
-								) : (
-									<select
-										value={selectedDevice}
-										onChange={(e) => setSelectedDevice(e.target.value)}
-										className="bg-white border border-zinc-300 rounded-lg px-3 py-2 text-zinc-700 focus:outline-none focus:border-zinc-400"
-									>
-										{devices.map((d) => (
-											<option key={d.deviceId} value={d.deviceId}>
-												{d.model || d.deviceId} ({d.status})
-											</option>
-										))}
-									</select>
-								)}
-							</div>
+			{/* 消息区域 */}
+			<div className="max-w-3xl mx-auto px-4 pt-4 pb-32 space-y-6">
+				{messages.length === 0 && (
+					<div className="h-[60vh] flex items-center justify-center text-zinc-400">
+						<div className="text-center">
+							<div className="text-5xl mb-4">💬</div>
+							<p>输入任务开始自动化操作</p>
 						</div>
 					</div>
 				)}
@@ -202,16 +252,13 @@ export default function App() {
 				{messages.map((msg, i) =>
 					msg.role === "user" ? (
 						<div key={i} className="flex justify-end">
-							<div className="bg-blue-500 text-white rounded-2xl rounded-br-sm px-4 py-2 max-w-[80%]">
+							<div className="bg-blue-500 text-white rounded-2xl rounded-br-sm px-4 py-2 max-w-[80%] whitespace-pre-wrap">
 								{msg.content}
 							</div>
 						</div>
 					) : (
 						<div key={i} className="space-y-3">
-							{/* 思考过程 */}
 							<p className="text-zinc-700 whitespace-pre-wrap">{msg.thinking}</p>
-
-							{/* 操作 */}
 							{msg.action && (
 								<div className="text-sm text-blue-600">
 									{msg.action._type === "finish" ? (
@@ -224,8 +271,6 @@ export default function App() {
 									)}
 								</div>
 							)}
-
-							{/* 截图 */}
 							{msg.screenshot && (
 								<img
 									src={`data:image/png;base64,${msg.screenshot}`}
@@ -242,32 +287,35 @@ export default function App() {
 				<div ref={messagesEndRef} />
 			</div>
 
-			{/* 输入区域 - ChatGPT 风格 */}
+			{/* 输入区域 */}
 			<div className="fixed bottom-0 left-0 right-0 pb-4 pt-2 bg-gradient-to-t from-white from-50% to-transparent pointer-events-none">
 				<form onSubmit={handleSubmit} className="max-w-3xl mx-auto px-4 pointer-events-auto">
-					<div className="relative">
+					<div className="bg-zinc-100 rounded-3xl px-4 pt-3 pb-2">
 						<textarea
 							value={input}
 							onChange={(e) => setInput(e.target.value)}
 							onKeyDown={handleKeyDown}
-							placeholder="输入任务... (Shift+Enter 换行)"
+							placeholder="输入任务..."
 							rows={1}
-							className="w-full bg-white border border-zinc-300 rounded-2xl pl-4 pr-12 py-3 focus:outline-none focus:border-zinc-400 shadow-sm resize-none overflow-hidden"
+							className="w-full bg-transparent focus:outline-none resize-none text-zinc-900 placeholder-zinc-400 disabled:cursor-not-allowed"
 							disabled={isRunning}
-							style={{ minHeight: "48px", maxHeight: "200px" }}
+							style={{ minHeight: "24px", maxHeight: "150px" }}
 							onInput={(e) => {
 								const target = e.target as HTMLTextAreaElement;
 								target.style.height = "auto";
-								target.style.height = Math.min(target.scrollHeight, 200) + "px";
+								target.style.height = Math.min(target.scrollHeight, 150) + "px";
 							}}
 						/>
-						<button
-							type="submit"
-							disabled={isRunning || !input.trim()}
-							className="absolute right-2 bottom-2 bg-zinc-900 hover:bg-zinc-700 disabled:bg-zinc-200 disabled:text-zinc-400 text-white w-8 h-8 rounded-lg flex items-center justify-center transition"
-						>
-							{isRunning ? "·" : "↑"}
-						</button>
+						<div className="flex items-center justify-between mt-2">
+							<div className="text-zinc-400 text-xs">Shift+Enter 换行</div>
+							<button
+								type="submit"
+								disabled={isRunning || !input.trim()}
+								className="bg-zinc-900 hover:bg-zinc-700 disabled:bg-zinc-300 text-white w-8 h-8 rounded-full flex items-center justify-center transition"
+							>
+								{isRunning ? "·" : "↑"}
+							</button>
+						</div>
 					</div>
 				</form>
 			</div>

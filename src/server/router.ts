@@ -38,7 +38,18 @@ const genId = () => Math.random().toString(36).slice(2, 10);
 // 设备相关
 export const listDevices = os.handler(async () => {
 	const devices = await adb.listDevices();
-	return devices;
+	// 并行获取所有设备截图
+	const devicesWithScreenshot = await Promise.all(
+		devices.map(async (d) => {
+			try {
+				const screenshot = await adb.getScreenshot(d.deviceId);
+				return { ...d, screenshot: screenshot.base64 };
+			} catch {
+				return { ...d, screenshot: undefined };
+			}
+		})
+	);
+	return devicesWithScreenshot;
 });
 
 // 任务相关

@@ -48,11 +48,31 @@ async function shell(cmd: string, deviceId?: string): Promise<string> {
 // 设备操作
 export async function listDevices() {
 	const devices = await getClient().getDevices();
-	return devices.map((d) => ({
-		deviceId: d.serial,
-		status: d.state,
-		model: d.model,
-	}));
+	return await Promise.all(
+		devices.map(async (d) => {
+			// 获取品牌和型号名
+			let brand = "";
+			let marketName = "";
+			try {
+				const adb = await getClient().createAdb({ serial: d.serial });
+				const socket = await adb.createSocket("shell:getprop ro.product.brand && getprop ro.product.marketname");
+				const chunks: Uint8Array[] = [];
+				for await (const chunk of socket.readable) chunks.push(chunk);
+				socket.close();
+				const output = Buffer.concat(chunks).toString("utf-8").trim();
+				const lines = output.split("\n");
+				brand = lines[0]?.trim() || "";
+				marketName = lines[1]?.trim() || "";
+			} catch {}
+			return {
+				deviceId: d.serial,
+				status: d.state,
+				model: d.model,
+				brand,
+				marketName,
+			};
+		})
+	);
 }
 
 export async function getCurrentApp(deviceId?: string): Promise<string> {
