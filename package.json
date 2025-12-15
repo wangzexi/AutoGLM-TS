@@ -3,11 +3,14 @@
   "version": "0.1.0",
   "type": "module",
   "description": "Phone agent powered by GLM vision-language models",
-  "main": "./src/index.ts",
+  "private": true,
+  "workspaces": [
+    ".",
+    "web"
+  ],
   "scripts": {
     "start": "npm run build && node --env-file=.env src/main.ts",
-    "dev": "concurrently -n server,web -c blue,green \"node --watch --env-file=.env src/main.ts\" \"cd web && npm run dev\"",
-    "build": "cd web && npm run build",
+    "dev": "concurrently -n server,web -c blue,green \"node --watch --env-file=.env src/main.ts\" \"npm run dev -w web\"",
     "check": "biome check . --fix"
   },
   "author": "",
