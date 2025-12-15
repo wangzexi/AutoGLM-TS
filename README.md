@@ -1,8 +1,8 @@
 # AutoGLM-TS
 
-![Demo](demo/demo.webp)
-
 TypeScript 实现的 [Open-AutoGLM](https://github.com/openinterpreter/open-autoglm) Android Agent。
+
+![Demo](demo/demo.webp)
 
 ```bash
 npm start # Web 模式
