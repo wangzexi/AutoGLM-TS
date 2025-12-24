@@ -18,10 +18,10 @@ export type ActionResult = {
   message?: string;
 };
 
-// 坐标：[0-999, 0-999] 的相对坐标
+// 坐标：[0-1000, 0-1000] 的相对坐标（豆包规范）
 export const Coordinate = z.tuple([
-  z.number().min(0).max(999),
-  z.number().min(0).max(999),
+  z.number().min(0).max(1000),
+  z.number().min(0).max(1000),
 ]);
 
 // 动作定义（泛型，保持类型约束）
@@ -32,7 +32,7 @@ export type ActionDef<T extends z.ZodObject<z.ZodRawShape>> = {
   handler: (params: z.infer<T>, ctx: ActionContext) => Promise<ActionResult>;
 };
 
-// 坐标转换：相对坐标(0-999) -> 绝对坐标
+// 坐标转换：相对坐标(0-1000) -> 绝对坐标
 export const toAbsolute = (
   rel: number[],
   w: number,

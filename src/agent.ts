@@ -326,15 +326,33 @@ export const createAgent = (config: AgentConfig = {}) => {
 const convertToolCallToAction = (toolCall: { toolName: string; arguments: any }): Record<string, unknown> | null => {
   const { toolName, arguments: args } = toolCall;
 
-  // 工具名称到动作名称的映射已在 DOUBAO_TOOLS 中定义
-  // 这里需要根据工具名称构建对应的 Action 对象
+  // 验证和转换坐标的工具函数
+  const validateCoordinate = (x: any, y: any, name: string): [number, number] | null => {
+    const numX = Number(x);
+    const numY = Number(y);
+
+    if (Number.isNaN(numX) || Number.isNaN(numY)) {
+      console.warn(`${name}: 坐标必须是数字`, { x, y });
+      return null;
+    }
+
+    if (numX < 0 || numX > 1000 || numY < 0 || numY > 1000) {
+      console.warn(`${name}: 坐标超出范围 (0-1000)`, { x: numX, y: numY });
+      return null;
+    }
+
+    return [numX, numY];
+  };
 
   switch (toolName) {
     case "launch_app":
       return { action: "Launch", app: args.app };
 
-    case "tap_screen":
-      return { action: "Tap", element: [args.x, args.y] };
+    case "tap_screen": {
+      const coord = validateCoordinate(args.x, args.y, "tap_screen");
+      if (!coord) return null;
+      return { action: "Tap", element: coord };
+    }
 
     case "type_text":
       return { action: "Type", text: args.text };
@@ -345,18 +363,28 @@ const convertToolCallToAction = (toolCall: { toolName: string; arguments: any })
     case "interact":
       return { action: "Interact" };
 
-    case "swipe_screen":
+    case "swipe_screen": {
+      const start = validateCoordinate(args.start_x, args.start_y, "swipe_screen start");
+      const end = validateCoordinate(args.end_x, args.end_y, "swipe_screen end");
+      if (!start || !end) return null;
       return {
         action: "Swipe",
-        start: [args.start_x, args.start_y],
-        end: [args.end_x, args.end_y]
+        start,
+        end
       };
+    }
 
-    case "long_press":
-      return { action: "Long_Press", element: [args.x, args.y] };
+    case "long_press": {
+      const coord = validateCoordinate(args.x, args.y, "long_press");
+      if (!coord) return null;
+      return { action: "Long_Press", element: coord };
+    }
 
-    case "double_tap":
-      return { action: "Double_Tap", element: [args.x, args.y] };
+    case "double_tap": {
+      const coord = validateCoordinate(args.x, args.y, "double_tap");
+      if (!coord) return null;
+      return { action: "Double_Tap", element: coord };
+    }
 
     case "back":
       return { action: "Back" };
