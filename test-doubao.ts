@@ -4,7 +4,7 @@
  */
 
 import { readFile } from "fs/promises";
-import { createDoubaoClient } from "./src/llm-doubao.ts";
+import { createDoubaoClient } from "./src/llm.ts";
 import { DOUBAO_TOOLS } from "./src/actions/doubao-tools.ts";
 
 // 读取图片

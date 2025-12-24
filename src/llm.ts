@@ -14,11 +14,7 @@ export type ToolDefinition = {
   type: 'function'
   name: string
   description: string
-  parameters: {
-    type: 'object'
-    properties: Record<string, any>
-    required: string[]
-  }
+  parameters: any  // 使用 any 避免类型复杂化
 }
 
 // 大模型消息类型
@@ -564,4 +560,7 @@ export const extractToolCalls = (stream: AsyncIterable<LLMStreamChunk>) => {
   // 这里实现复杂的流式解析逻辑
   // 由于代码较长，这里先简化
   return toolCalls;
-};
+}
+
+// 导出 createDoubaoClient 供测试使用
+export { createDoubaoClient };
