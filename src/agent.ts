@@ -6,7 +6,7 @@
 import { type ActionContext, executeAction } from "./actions/index.ts";
 import * as adb from "./adb.ts";
 import { buildSystemPrompt } from "./config.ts";
-import { type Message, streamWithTools, type StreamParseEvent } from "./llm.ts";
+import { type Message, type StreamParseEvent, streamWithTools } from "./llm.ts";
 
 // 步骤结果
 export type StepResult = {
@@ -125,7 +125,10 @@ export const createAgent = (config: AgentConfig = {}) => {
 
     // 调用模型（流式工具调用）
     let reasoningText = "";
-    let toolCall: { toolName: string; arguments: any } | null = null;
+    let toolCall: {
+      toolName: string;
+      arguments: Record<string, unknown>;
+    } | null = null;
 
     try {
       const stream = streamWithTools(messages, signal);
@@ -323,11 +326,18 @@ export const createAgent = (config: AgentConfig = {}) => {
 /**
  * 将工具调用转换为 Action 对象
  */
-const convertToolCallToAction = (toolCall: { toolName: string; arguments: any }): Record<string, unknown> | null => {
+const convertToolCallToAction = (toolCall: {
+  toolName: string;
+  arguments: Record<string, unknown>;
+}): Record<string, unknown> | null => {
   const { toolName, arguments: args } = toolCall;
 
   // 验证和转换坐标的工具函数
-  const validateCoordinate = (x: any, y: any, name: string): [number, number] | null => {
+  const validateCoordinate = (
+    x: unknown,
+    y: unknown,
+    name: string,
+  ): [number, number] | null => {
     const numX = Number(x);
     const numY = Number(y);
 
@@ -364,13 +374,21 @@ const convertToolCallToAction = (toolCall: { toolName: string; arguments: any })
       return { action: "Interact" };
 
     case "swipe_screen": {
-      const start = validateCoordinate(args.start_x, args.start_y, "swipe_screen start");
-      const end = validateCoordinate(args.end_x, args.end_y, "swipe_screen end");
+      const start = validateCoordinate(
+        args.start_x,
+        args.start_y,
+        "swipe_screen start",
+      );
+      const end = validateCoordinate(
+        args.end_x,
+        args.end_y,
+        "swipe_screen end",
+      );
       if (!start || !end) return null;
       return {
         action: "Swipe",
         start,
-        end
+        end,
       };
     }
 
