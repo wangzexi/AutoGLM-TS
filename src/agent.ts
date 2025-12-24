@@ -1,11 +1,12 @@
 /**
- * PhoneAgent - 手机自动化代理
+ * PhoneAgent - 手机自动化代理（豆包版本）
+ * 使用结构化工具调用替代文本解析
  */
 
 import { type ActionContext, executeAction } from "./actions/index.ts";
 import * as adb from "./adb.ts";
 import { buildSystemPrompt } from "./config.ts";
-import { type Message, chat, parseResponse, streamParse } from "./llm.ts";
+import { type Message, streamWithTools, type StreamParseEvent } from "./llm.ts";
 
 // 步骤结果
 export type StepResult = {
@@ -82,6 +83,7 @@ export const createAgent = (config: AgentConfig = {}) => {
 
   /**
    * 执行一步（底层 generator）
+   * 使用豆包工具调用替代文本解析
    */
   const step = async function* (task?: string): AsyncGenerator<StepEvent> {
     stepCount++;
@@ -121,17 +123,21 @@ export const createAgent = (config: AgentConfig = {}) => {
       ],
     });
 
-    // 调用模型（流式）
-    let rawContent = "";
+    // 调用模型（流式工具调用）
+    let reasoningText = "";
+    let toolCall: { toolName: string; arguments: any } | null = null;
 
     try {
-      const chunks = chat(messages, signal);
+      const stream = streamWithTools(messages, signal);
 
-      for await (const event of streamParse(chunks)) {
+      for await (const event of stream) {
         if (event.type === "thinking") {
+          reasoningText = event.thinking;
           yield { type: "thinking", thinking: event.thinking };
+        } else if (event.type === "tool_call") {
+          toolCall = { toolName: event.toolName, arguments: event.arguments };
         } else if (event.type === "done") {
-          rawContent = event.content;
+          // 完成
         }
       }
     } catch (e) {
@@ -148,70 +154,76 @@ export const createAgent = (config: AgentConfig = {}) => {
     }
 
     // 解析响应
-    const { thinking, action, error } = parseResponse(rawContent);
-
-    // yield 完整 thinking
-    if (thinking) {
-      yield { type: "thinking", thinking };
-    }
+    // 在豆包模式下，toolCall 包含结构化参数
+    // 不再需要 parseResponse 解析文本
 
     // 记录 assistant 响应
-    messages.push({ role: "assistant", content: rawContent });
+    messages.push({
+      role: "assistant",
+      content: reasoningText || "工具调用完成",
+    });
 
-    // 解析失败 -> 反馈给模型重试
-    if (error) {
-      messages.push({
-        role: "user",
-        content: `Action 格式错误: ${error}\n请修正后重新输出。`,
-      });
-      stepCount--;
-      yield* step();
-      return;
-    }
+    // 处理工具调用
+    if (toolCall) {
+      const actionObj = convertToolCallToAction(toolCall);
+      if (actionObj) {
+        // yield action（执行前）
+        yield { type: "action", action: actionObj };
 
-    // 无 action -> 当作完成
-    if (!action) {
+        // 移除历史图片（节省 token）
+        const prevUserMsg = messages.at(-2);
+        if (prevUserMsg && Array.isArray(prevUserMsg.content)) {
+          prevUserMsg.content = prevUserMsg.content.filter(
+            (c) => c.type === "text",
+          );
+        }
+
+        // 执行动作
+        const ctx: ActionContext = {
+          deviceId,
+          screenWidth: screenshot.width,
+          screenHeight: screenshot.height,
+        };
+
+        const execResult = await executeAction(actionObj, ctx);
+
+        const isFinish = actionObj.action === "finish";
+        yield {
+          type: "done",
+          result: {
+            success: execResult.success,
+            finished: isFinish || execResult.finished || false,
+            thinking: reasoningText,
+            action: actionObj,
+            message:
+              execResult.message ||
+              (isFinish ? (actionObj.message as string) : undefined),
+          },
+        };
+      } else {
+        // 工具调用失败
+        yield {
+          type: "done",
+          result: {
+            success: false,
+            finished: false,
+            thinking: reasoningText,
+            message: `无法处理工具调用: ${toolCall.toolName}`,
+          },
+        };
+      }
+    } else {
+      // 没有工具调用 -> 当作完成
       yield {
         type: "done",
-        result: { success: true, finished: true, thinking, message: thinking },
+        result: {
+          success: true,
+          finished: true,
+          thinking: reasoningText,
+          message: reasoningText,
+        },
       };
-      return;
     }
-
-    // yield action（执行前）
-    const actionObj = action as Record<string, unknown>;
-    yield { type: "action", action: actionObj };
-
-    // 移除历史图片（节省 token）
-    const prevUserMsg = messages.at(-2);
-    if (prevUserMsg && Array.isArray(prevUserMsg.content)) {
-      prevUserMsg.content = prevUserMsg.content.filter(
-        (c) => c.type === "text",
-      );
-    }
-
-    // 执行动作
-    const ctx: ActionContext = {
-      deviceId,
-      screenWidth: screenshot.width,
-      screenHeight: screenshot.height,
-    };
-
-    const execResult = await executeAction(actionObj, ctx);
-
-    const isFinish = actionObj.action === "finish";
-    yield {
-      type: "done",
-      result: {
-        success: execResult.success,
-        finished: isFinish || execResult.finished || false,
-        thinking,
-        action: actionObj,
-        message:
-          execResult.message ||
-          (isFinish ? (actionObj.message as string) : undefined),
-      },
-    };
   };
 
   /**
@@ -306,4 +318,69 @@ export const createAgent = (config: AgentConfig = {}) => {
   };
 
   return { run, runTask, step, reset, getLastScreenshot: () => lastScreenshot };
+};
+
+/**
+ * 将工具调用转换为 Action 对象
+ */
+const convertToolCallToAction = (toolCall: { toolName: string; arguments: any }): Record<string, unknown> | null => {
+  const { toolName, arguments: args } = toolCall;
+
+  // 工具名称到动作名称的映射已在 DOUBAO_TOOLS 中定义
+  // 这里需要根据工具名称构建对应的 Action 对象
+
+  switch (toolName) {
+    case "launch_app":
+      return { action: "Launch", app: args.app };
+
+    case "tap_screen":
+      return { action: "Tap", element: [args.x, args.y] };
+
+    case "type_text":
+      return { action: "Type", text: args.text };
+
+    case "type_name":
+      return { action: "Type_Name", text: args.text };
+
+    case "interact":
+      return { action: "Interact" };
+
+    case "swipe_screen":
+      return {
+        action: "Swipe",
+        start: [args.start_x, args.start_y],
+        end: [args.end_x, args.end_y]
+      };
+
+    case "long_press":
+      return { action: "Long_Press", element: [args.x, args.y] };
+
+    case "double_tap":
+      return { action: "Double_Tap", element: [args.x, args.y] };
+
+    case "back":
+      return { action: "Back" };
+
+    case "home":
+      return { action: "Home" };
+
+    case "wait":
+      return { action: "Wait", duration: args.duration };
+
+    case "take_over":
+      return { action: "Take_over", message: args.message };
+
+    case "note":
+      return { action: "Note", content: args.content };
+
+    case "call_api":
+      return { action: "Call_API", instruction: args.instruction };
+
+    case "finish":
+      return { action: "finish", message: args.message };
+
+    default:
+      console.warn(`未知工具: ${toolName}`);
+      return null;
+  }
 };
