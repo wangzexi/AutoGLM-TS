@@ -6,7 +6,7 @@ import { os } from "@orpc/server";
 import { z } from "zod";
 import * as adb from "../adb.ts";
 import { type TaskEvent, createAgent } from "../agent.ts";
-import { chat, chatWithModel } from "../llm.ts";
+import { chat } from "../llm.ts";
 import {
   appendAssistantMessage,
   appendUserMessage,
@@ -229,7 +229,7 @@ export const cancelTask = os.handler(async () => {
 // ============ Config ============
 
 export const configGet = os.handler(async () => ({
-  model: process.env.AUTOGLM_MODEL || "unknown",
+  model: process.env.DOUBAO_MODEL || "doubao-seed-1-6-vision-250815",
 }));
 
 // ============ Skill ============
@@ -263,10 +263,9 @@ export const generateSkill = os.handler(async () => {
     },
   ];
 
-  // 调用通用模型生成总结
-  const generalModel = process.env.AUTOGLM_GENERAL_MODEL || "glm-4-flash";
+  // 调用豆包模型生成总结
   let result = "";
-  for await (const chunk of chatWithModel(summaryMessages, generalModel)) {
+  for await (const chunk of chat(summaryMessages)) {
     result += chunk;
   }
 

@@ -57,7 +57,7 @@ npm install
 
 配置环境变量：
 ```bash
-cp .env.example .env # 创建 .env，填入 API 密钥（https://open.bigmodel.cn）
+cp .env.example .env # 创建 .env，填入豆包 API 密钥
 ```
 
 运行项目：
@@ -75,10 +75,9 @@ npm run dev # 或开发模式（代码热重载）
 
 | 变量 | 说明 | 必需 | 示例 |
 |------|------|------|------|
-| `AUTOGLM_BASE_URL` | LLM API 服务地址 | ✅ | `https://open.bigmodel.cn/api/paas/v4` |
-| `AUTOGLM_MODEL` | 手机自动化模型 | ✅ | `autoglm-phone` |
-| `AUTOGLM_GENERAL_MODEL` | 通用任务模型（技能总结等） | ❌ | `glm-4-flash`（默认） |
-| `AUTOGLM_API_KEY` | API 认证密钥 | ✅ | 从服务商获取 |
+| `DOUBAO_BASE_URL` | 豆包 API 服务地址 | ✅ | `https://ark.cn-beijing.volces.com/api/v3/responses` |
+| `DOUBAO_MODEL` | 豆包视觉模型 | ✅ | `doubao-seed-1-6-vision-250815` |
+| `DOUBAO_API_KEY` | 豆包 API 认证密钥 | ✅ | 从火山引擎获取 |
 | `AUTOGLM_MAX_STEPS` | 单次任务最大执行步数 | ❌ | `100`（默认） |
 
 ## 许可证

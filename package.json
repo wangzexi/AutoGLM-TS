@@ -2,7 +2,7 @@
   "name": "autoglm-ts",
   "version": "0.1.0",
   "type": "module",
-  "description": "Phone agent powered by GLM vision-language models",
+  "description": "Phone agent powered by Doubao (ByteDance) vision-language models",
   "private": true,
   "workspaces": [
     ".",
